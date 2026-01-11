@@ -1,0 +1,22 @@
+[package]
+name = "sereno-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sereno"
+path = "src/main.rs"
+
+[dependencies]
+sereno-core = { path = "../sereno-core" }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+tabled = "0.17"
+dirs = "6"

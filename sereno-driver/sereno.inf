@@ -1,0 +1,83 @@
+;
+; Sereno WFP Callout Driver
+;
+; Windows Filtering Platform callout driver for synchronous network connection filtering
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = WFPCALLOUTS
+ClassGuid   = {57465043-616C-6C6F-7574-5F636C617373}
+Provider    = %ManufacturerName%
+CatalogFile = sereno.cat
+DriverVer   = 01/11/2026,1.0.0.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir          = 13
+SerenoFilter.CopyFiles  = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+SerenoFilter.sys = 1,,
+
+;
+; Default install sections
+;
+
+[DefaultInstall.NT$ARCH$]
+OptionDesc = %ServiceDescription%
+CopyFiles  = SerenoFilter.CopyFiles
+
+[DefaultInstall.NT$ARCH$.Services]
+AddService = %ServiceName%,,SerenoFilter.Service
+
+[DefaultUninstall.NT$ARCH$]
+LegacyUninstall = 1
+DelFiles        = SerenoFilter.CopyFiles
+
+[DefaultUninstall.NT$ARCH$.Services]
+DelService = %ServiceName%,0x200
+
+;
+; Service installation
+;
+
+[SerenoFilter.Service]
+DisplayName    = %ServiceDisplayName%
+Description    = %ServiceDescription%
+ServiceBinary  = %13%\SerenoFilter.sys
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+LoadOrderGroup = NetworkProvider
+
+;
+; Copy Files
+;
+
+[SerenoFilter.CopyFiles]
+SerenoFilter.sys,,,0x00004000   ; COPYFLG_IN_USE_RENAME
+
+;
+; WDF coinstaller installation
+;
+
+[DefaultInstall.NT$ARCH$.Wdf]
+KmdfService = %ServiceName%, SerenoFilter.WdfSection
+
+[SerenoFilter.WdfSection]
+KmdfLibraryVersion = 1.33
+
+;
+; String definitions
+;
+
+[Strings]
+ManufacturerName    = "Sereno Project"
+DiskName            = "Sereno Installation Disk"
+ServiceName         = "SerenoFilter"
+ServiceDisplayName  = "Sereno Network Filter"
+ServiceDescription  = "Windows Filtering Platform callout driver for network connection filtering"
