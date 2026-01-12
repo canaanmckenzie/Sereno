@@ -74,6 +74,10 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
+    <InfVerifEnabled>false</InfVerifEnabled>
+    <SignMode>Off</SignMode>
+  </PropertyGroup>
+  <PropertyGroup>
     <IntDir>$(SolutionDir)obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
   </PropertyGroup>
@@ -134,9 +138,12 @@
   <ItemGroup>
     <ClInclude Include="src\driver.h" />
   </ItemGroup>
+  <!-- INF excluded - using sc.exe for installation -->
+  <!--
   <ItemGroup>
     <Inf Include="sereno.inf" />
   </ItemGroup>
+  -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

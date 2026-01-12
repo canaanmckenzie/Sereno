@@ -365,40 +365,7 @@ code --list-extensions
 # Should include all the extensions above
 ```
 
-#### Step 11: Install Claude Code CLI
-
-```powershell
-# WHERE TO RUN: sereno-dev VM - PowerShell
-npm install -g @anthropic-ai/claude-code
-```
-
-**Verify:**
-
-```powershell
-claude --version
-# Should show version number
-```
-
-#### Step 12: Authenticate Claude Code
-
-```powershell
-# WHERE TO RUN: sereno-dev VM - PowerShell
-claude
-```
-
-1. Browser opens with Anthropic login
-2. Use your Max subscription email
-3. Click magic link in email
-4. Terminal confirms authentication
-
-**Verify:**
-
-```powershell
-claude "respond with: authentication successful"
-# Should get a response confirming it works
-```
-
-#### Step 13: Install Cargo Audit Tools
+#### Step 11: Install Cargo Audit Tools
 
 ```powershell
 # WHERE TO RUN: sereno-dev VM - PowerShell
@@ -416,7 +383,7 @@ cargo deny --version
 # Both should show version numbers
 ```
 
-#### Step 14: Create Project Directory
+#### Step 12: Create Project Directory
 
 ```powershell
 # WHERE TO RUN: sereno-dev VM - PowerShell
@@ -500,29 +467,7 @@ rustup component add rust-src
 rustup target add x86_64-pc-windows-msvc
 ```
 
-### 2.2 Install Claude Code
-
-```powershell
-# WHERE TO RUN: Windows 11 VM - PowerShell
-npm install -g @anthropic-ai/claude-code
-```
-
-#### Sign In
-
-```powershell
-# WHERE TO RUN: Windows 11 VM - PowerShell
-claude
-# Follow the authentication prompts
-# Uses your existing Anthropic account - same login works on any machine
-# Your subscription/credits are tied to your account, not the machine
-```
-
-#### VS Code Integration
-
-- Claude Code works in terminal
-- VS Code just provides a nicer editor alongside it
-
-### 2.3 VS Code Extensions
+### 2.2 VS Code Extensions
 
 ```powershell
 # WHERE TO RUN: Windows 11 VM - PowerShell
@@ -768,9 +713,6 @@ Or configure via Proxmox Web UI: Select VM -> Hardware -> Edit each setting.
 mkdir C:\Dev\sereno
 cd C:\Dev\sereno
 
-# Initialize with Claude Code
-claude
-
 # First build
 cargo build
 
@@ -782,11 +724,3 @@ cargo audit
 cargo test
 ```
 
----
-
-## Claude Code - Same Account Any Machine
-
-- Claude Code authenticates via your Anthropic account
-- Your usage/credits are tied to your account, not machine
-- Just run `claude` and authenticate - it will recognize your subscription
-- Settings sync is per-machine (stored locally in `~/.claude/`)

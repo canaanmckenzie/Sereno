@@ -32,6 +32,17 @@ struct CacheEntry {
 
 const CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
+/// Get cached DNS result only - NO network lookup (for real-time performance)
+pub fn get_cached(addr: IpAddr) -> Option<String> {
+    let cache = DNS_CACHE.lock().unwrap();
+    if let Some(entry) = cache.get(&addr) {
+        if entry.timestamp.elapsed() < CACHE_TTL {
+            return entry.hostname.clone();
+        }
+    }
+    None
+}
+
 /// Perform reverse DNS lookup with caching
 pub async fn reverse_lookup(addr: IpAddr) -> Option<String> {
     // Check cache

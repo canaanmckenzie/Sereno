@@ -8,13 +8,27 @@
 #ifndef SERENO_DRIVER_H
 #define SERENO_DRIVER_H
 
+// NDIS version must be defined before includes for WFP
+#define NDIS683
+
+// Suppress expected warnings from Windows SDK headers
+#pragma warning(push)
+#pragma warning(disable: 4201) // nameless struct/union
+
+#include <ntifs.h>
 #include <ntddk.h>
+#include <ndis.h>
 #include <wdf.h>
 #include <fwpsk.h>
 #include <fwpmk.h>
-#include <netiodef.h>
-#include <ndis.h>
-#include <mstcpip.h>
+#include <guiddef.h>
+
+#pragma warning(pop)
+
+// GUID_NULL may not be defined in kernel mode
+#ifndef GUID_NULL
+DEFINE_GUID(GUID_NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+#endif
 
 // Driver name and device
 #define SERENO_DRIVER_NAME      L"SerenoFilter"
@@ -23,8 +37,11 @@
 #define SERENO_POOL_TAG         'oreS'
 
 // Maximum pending requests
-#define MAX_PENDING_REQUESTS    1000
-#define REQUEST_TIMEOUT_MS      30000
+#define MAX_PENDING_REQUESTS    100
+#define REQUEST_TIMEOUT_MS      5000
+
+// Circuit breaker - auto-disable if too many timeouts
+#define CIRCUIT_BREAKER_THRESHOLD   10
 
 // IOCTL codes
 #define FILE_DEVICE_SERENO      0x8000

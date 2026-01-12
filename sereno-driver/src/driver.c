@@ -3,15 +3,30 @@
  *
  * This driver implements synchronous connection filtering using WFP callouts
  * at the ALE (Application Layer Enforcement) layers.
+ *
+ * This is a non-PnP control device driver - it creates its own device
+ * in DriverEntry rather than waiting for PnP enumeration.
  */
 
+// INITGUID must be defined before including headers to actually define GUIDs
+#define INITGUID
+#include <initguid.h>
 #include "driver.h"
+
+// SDDL string for device security (System full access, Administrators full access)
+DECLARE_CONST_UNICODE_STRING(SERENO_DEVICE_SDDL, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
 
 // Global device context pointer for callout functions
 static PSERENO_DEVICE_CONTEXT g_DeviceContext = NULL;
+static WDFDEVICE g_ControlDevice = NULL;
+
+// Forward declaration
+EVT_WDF_DRIVER_UNLOAD SerenoEvtDriverUnload;
 
 /*
  * DriverEntry - Driver initialization
+ *
+ * For a non-PnP software driver, we create the control device directly here.
  */
 NTSTATUS
 DriverEntry(
@@ -21,19 +36,31 @@ DriverEntry(
 {
     NTSTATUS status;
     WDF_DRIVER_CONFIG config;
-    WDF_OBJECT_ATTRIBUTES attributes;
+    WDF_OBJECT_ATTRIBUTES driverAttributes;
+    WDFDRIVER driver;
+    PWDFDEVICE_INIT deviceInit = NULL;
+    WDF_OBJECT_ATTRIBUTES deviceAttributes;
+    WDF_IO_QUEUE_CONFIG queueConfig;
+    WDFQUEUE queue;
+    PSERENO_DEVICE_CONTEXT deviceContext;
+    DECLARE_CONST_UNICODE_STRING(deviceName, SERENO_DEVICE_NAME);
+    DECLARE_CONST_UNICODE_STRING(symlinkName, SERENO_SYMLINK_NAME);
 
     KdPrint(("Sereno: DriverEntry\n"));
 
-    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
-    WDF_DRIVER_CONFIG_INIT(&config, SerenoEvtDeviceAdd);
+    // Initialize driver config - no DeviceAdd callback for non-PnP driver
+    WDF_DRIVER_CONFIG_INIT(&config, WDF_NO_EVENT_CALLBACK);
+    config.DriverInitFlags |= WdfDriverInitNonPnpDriver;
+    config.EvtDriverUnload = SerenoEvtDriverUnload;
+
+    WDF_OBJECT_ATTRIBUTES_INIT(&driverAttributes);
 
     status = WdfDriverCreate(
         DriverObject,
         RegistryPath,
-        &attributes,
+        &driverAttributes,
         &config,
-        WDF_NO_HANDLE
+        &driver
     );
 
     if (!NT_SUCCESS(status)) {
@@ -41,58 +68,41 @@ DriverEntry(
         return status;
     }
 
-    KdPrint(("Sereno: Driver initialized successfully\n"));
-    return STATUS_SUCCESS;
-}
-
-/*
- * SerenoEvtDeviceAdd - Create device and initialize WFP
- */
-NTSTATUS
-SerenoEvtDeviceAdd(
-    _In_ WDFDRIVER Driver,
-    _Inout_ PWDFDEVICE_INIT DeviceInit
-)
-{
-    NTSTATUS status;
-    WDFDEVICE device;
-    PSERENO_DEVICE_CONTEXT deviceContext;
-    WDF_OBJECT_ATTRIBUTES deviceAttributes;
-    WDF_IO_QUEUE_CONFIG queueConfig;
-    WDFQUEUE queue;
-    DECLARE_CONST_UNICODE_STRING(deviceName, SERENO_DEVICE_NAME);
-    DECLARE_CONST_UNICODE_STRING(symlinkName, SERENO_SYMLINK_NAME);
-
-    UNREFERENCED_PARAMETER(Driver);
-
-    KdPrint(("Sereno: SerenoEvtDeviceAdd\n"));
+    // Allocate a device init structure for our control device
+    deviceInit = WdfControlDeviceInitAllocate(driver, &SERENO_DEVICE_SDDL);
+    if (deviceInit == NULL) {
+        KdPrint(("Sereno: WdfControlDeviceInitAllocate failed\n"));
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
 
     // Set device name
-    status = WdfDeviceInitAssignName(DeviceInit, &deviceName);
+    status = WdfDeviceInitAssignName(deviceInit, &deviceName);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Sereno: WdfDeviceInitAssignName failed: 0x%08X\n", status));
+        WdfDeviceInitFree(deviceInit);
         return status;
     }
 
     // Set device type
-    WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_NETWORK);
-    WdfDeviceInitSetCharacteristics(DeviceInit, FILE_DEVICE_SECURE_OPEN, FALSE);
+    WdfDeviceInitSetDeviceType(deviceInit, FILE_DEVICE_NETWORK);
+    WdfDeviceInitSetCharacteristics(deviceInit, FILE_DEVICE_SECURE_OPEN, FALSE);
 
     // Set cleanup callback
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&deviceAttributes, SERENO_DEVICE_CONTEXT);
     deviceAttributes.EvtCleanupCallback = SerenoEvtDeviceContextCleanup;
 
     // Create device
-    status = WdfDeviceCreate(&DeviceInit, &deviceAttributes, &device);
+    status = WdfDeviceCreate(&deviceInit, &deviceAttributes, &g_ControlDevice);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Sereno: WdfDeviceCreate failed: 0x%08X\n", status));
+        // deviceInit is freed by WdfDeviceCreate on failure
         return status;
     }
 
     // Get device context
-    deviceContext = SerenoGetDeviceContext(device);
+    deviceContext = SerenoGetDeviceContext(g_ControlDevice);
     RtlZeroMemory(deviceContext, sizeof(SERENO_DEVICE_CONTEXT));
-    deviceContext->Device = device;
+    deviceContext->Device = g_ControlDevice;
     g_DeviceContext = deviceContext;
 
     // Initialize pending list
@@ -104,7 +114,7 @@ SerenoEvtDeviceAdd(
     deviceContext->ShuttingDown = FALSE;
 
     // Create symbolic link
-    status = WdfDeviceCreateSymbolicLink(device, &symlinkName);
+    status = WdfDeviceCreateSymbolicLink(g_ControlDevice, &symlinkName);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Sereno: WdfDeviceCreateSymbolicLink failed: 0x%08X\n", status));
         return status;
@@ -114,7 +124,7 @@ SerenoEvtDeviceAdd(
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchSequential);
     queueConfig.EvtIoDeviceControl = SerenoEvtIoDeviceControl;
 
-    status = WdfIoQueueCreate(device, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, &queue);
+    status = WdfIoQueueCreate(g_ControlDevice, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, &queue);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Sereno: WdfIoQueueCreate failed: 0x%08X\n", status));
         return status;
@@ -124,10 +134,46 @@ SerenoEvtDeviceAdd(
     status = SerenoRegisterCallouts(deviceContext);
     if (!NT_SUCCESS(status)) {
         KdPrint(("Sereno: SerenoRegisterCallouts failed: 0x%08X\n", status));
-        // Don't fail device creation, just log
+        // Don't fail driver load, just log
     }
 
-    KdPrint(("Sereno: Device created successfully\n"));
+    // Finish initializing the control device
+    WdfControlFinishInitializing(g_ControlDevice);
+
+    KdPrint(("Sereno: Driver initialized successfully\n"));
+    return STATUS_SUCCESS;
+}
+
+/*
+ * SerenoEvtDriverUnload - Called when driver is unloading
+ */
+VOID
+SerenoEvtDriverUnload(
+    _In_ WDFDRIVER Driver
+)
+{
+    UNREFERENCED_PARAMETER(Driver);
+    KdPrint(("Sereno: Driver unloading\n"));
+
+    // Cleanup is handled by device context cleanup callback
+    if (g_ControlDevice != NULL) {
+        WdfObjectDelete(g_ControlDevice);
+        g_ControlDevice = NULL;
+    }
+}
+
+/*
+ * SerenoEvtDeviceAdd - Not used for non-PnP driver but kept for reference
+ */
+NTSTATUS
+SerenoEvtDeviceAdd(
+    _In_ WDFDRIVER Driver,
+    _Inout_ PWDFDEVICE_INIT DeviceInit
+)
+{
+    UNREFERENCED_PARAMETER(Driver);
+    UNREFERENCED_PARAMETER(DeviceInit);
+    // Not used - we create the device in DriverEntry
     return STATUS_SUCCESS;
 }
 
@@ -271,8 +317,10 @@ SerenoEvtIoDeviceControl(
 
     case IOCTL_SERENO_ENABLE:
     {
+        // Reset circuit breaker when re-enabling
+        deviceContext->Stats.TimedOutRequests = 0;
         deviceContext->FilteringEnabled = TRUE;
-        KdPrint(("Sereno: Filtering enabled\n"));
+        KdPrint(("Sereno: Filtering enabled (circuit breaker reset)\n"));
         break;
     }
 
@@ -306,7 +354,6 @@ SerenoRegisterCallouts(
     FWPS_CALLOUT3 sCallout = { 0 };
     FWPM_CALLOUT0 mCallout = { 0 };
     FWPM_FILTER0 filter = { 0 };
-    FWPM_FILTER_CONDITION0 filterConditions[1] = { 0 };
 
     KdPrint(("Sereno: Registering callouts\n"));
 
@@ -511,7 +558,8 @@ SerenoClassifyConnect(
     BOOLEAN isIPv6;
     NTSTATUS status;
     LARGE_INTEGER timeout;
-    UINT32 localAddr, remoteAddr;
+    UINT32 localAddrV4 = 0, remoteAddrV4 = 0;
+    UINT8 localAddrV6[16] = {0}, remoteAddrV6[16] = {0};
     UINT16 localPort, remotePort;
     UINT8 protocol;
     HANDLE processId;
@@ -540,13 +588,18 @@ SerenoClassifyConnect(
 
     // Extract connection info based on IP version
     if (isIPv6) {
-        // IPv6 - TODO: implement
-        ClassifyOut->actionType = FWP_ACTION_PERMIT;
-        return;
+        // IPv6
+        FWP_BYTE_ARRAY16* localAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_LOCAL_ADDRESS].value.byteArray16;
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (localAddrPtr) RtlCopyMemory(localAddrV6, localAddrPtr->byteArray16, 16);
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_REMOTE_PORT].value.uint16;
+        protocol = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_PROTOCOL].value.uint8;
     } else {
         // IPv4
-        localAddr = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_LOCAL_ADDRESS].value.uint32;
-        remoteAddr = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_REMOTE_ADDRESS].value.uint32;
+        localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_LOCAL_ADDRESS].value.uint32;
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_REMOTE_ADDRESS].value.uint32;
         localPort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_LOCAL_PORT].value.uint16;
         remotePort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_REMOTE_PORT].value.uint16;
         protocol = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_PROTOCOL].value.uint8;
@@ -554,9 +607,75 @@ SerenoClassifyConnect(
 
     // Get process ID
     if (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID) {
-        processId = InMetaValues->processId;
+        processId = (HANDLE)(ULONG_PTR)InMetaValues->processId;
     } else {
         processId = (HANDLE)0;
+    }
+
+    // CRITICAL SAFETY BYPASSES
+    // These prevent infinite loops and system instability
+
+    // 1. Skip DNS traffic (port 53) - prevents infinite feedback loop
+    if (remotePort == 53 || localPort == 53) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 2. Skip mDNS traffic (port 5353) - multicast DNS, very chatty
+    if (remotePort == 5353 || localPort == 5353) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 3. Skip DHCP traffic (ports 67, 68) - critical for network config
+    if (remotePort == 67 || remotePort == 68 || localPort == 67 || localPort == 68) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 4. Skip multicast addresses
+    if (isIPv6) {
+        // IPv6 multicast: ff00::/8
+        if (remoteAddrV6[0] == 0xFF) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        // IPv4 multicast: 224.x.x.x (0xE0000000)
+        if ((remoteAddrV4 & 0xF0000000) == 0xE0000000) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // 5. Skip localhost/loopback traffic
+    if (isIPv6) {
+        // IPv6 loopback: ::1
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16 ||
+            RtlCompareMemory(localAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        // IPv4 loopback: 127.0.0.1
+        if (remoteAddrV4 == 0x7F000001 || localAddrV4 == 0x7F000001) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // 6. Circuit breaker - if too many timeouts, auto-disable to prevent system hang
+    if (deviceContext->Stats.TimedOutRequests > CIRCUIT_BREAKER_THRESHOLD) {
+        // Too many timeouts - service is likely not running or too slow
+        // Auto-permit to prevent system lockup
+        // Only log once per 100 connections to avoid log spam
+        if ((deviceContext->Stats.TotalConnections % 100) == 0) {
+            KdPrint(("Sereno: Circuit breaker ACTIVE - auto-permitting (timeouts: %llu)\n",
+                     deviceContext->Stats.TimedOutRequests));
+        }
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
     }
 
     // Update stats
@@ -582,11 +701,19 @@ SerenoClassifyConnect(
     pendingRequest->ConnectionInfo.ProcessId = (UINT32)(ULONG_PTR)processId;
     pendingRequest->ConnectionInfo.Protocol = protocol;
     pendingRequest->ConnectionInfo.Direction = SERENO_DIRECTION_OUTBOUND;
-    pendingRequest->ConnectionInfo.IpVersion = 4;
-    pendingRequest->ConnectionInfo.LocalAddressV4 = localAddr;
-    pendingRequest->ConnectionInfo.RemoteAddressV4 = remoteAddr;
     pendingRequest->ConnectionInfo.LocalPort = localPort;
     pendingRequest->ConnectionInfo.RemotePort = remotePort;
+
+    if (isIPv6) {
+        pendingRequest->ConnectionInfo.IpVersion = 6;
+        RtlCopyMemory(pendingRequest->ConnectionInfo.LocalAddressV6, localAddrV6, 16);
+        RtlCopyMemory(pendingRequest->ConnectionInfo.RemoteAddressV6, remoteAddrV6, 16);
+    } else {
+        pendingRequest->ConnectionInfo.IpVersion = 4;
+        pendingRequest->ConnectionInfo.LocalAddressV4 = localAddrV4;
+        pendingRequest->ConnectionInfo.RemoteAddressV4 = remoteAddrV4;
+    }
+    pendingRequest->IsIPv6 = isIPv6;
 
     // Get process path
     if (processId) {
@@ -620,10 +747,10 @@ SerenoClassifyConnect(
 
     // Apply verdict
     if (status == STATUS_TIMEOUT) {
-        // Timeout - default to block
+        // Timeout - default to PERMIT (fail-open prevents retry storms)
         InterlockedIncrement64((LONG64*)&deviceContext->Stats.TimedOutRequests);
-        InterlockedIncrement64((LONG64*)&deviceContext->Stats.BlockedConnections);
-        ClassifyOut->actionType = FWP_ACTION_BLOCK;
+        InterlockedIncrement64((LONG64*)&deviceContext->Stats.AllowedConnections);
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
     } else {
         switch (pendingRequest->Verdict) {
         case SERENO_VERDICT_ALLOW:
