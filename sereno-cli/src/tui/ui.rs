@@ -3,7 +3,7 @@
 use crate::tui::app::{App, DriverStatus, Tab};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs},
     Frame,
@@ -133,12 +133,28 @@ fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
             action_style
         };
 
+        // Format process name - handle System process (PID 4)
+        let process_display = if conn.process_id == 4 {
+            "System[4]".to_string()
+        } else if conn.process_name == "Unknown" || conn.process_name.is_empty() {
+            format!("PID:{}", conn.process_id)
+        } else {
+            format!("{}[{}]", conn.process_name, conn.process_id)
+        };
+
+        // Format port - handle ICMP (no ports)
+        let port_display = if conn.protocol == "Icmp" || conn.protocol == "ICMP" {
+            "ICMP".to_string()
+        } else {
+            format!("{}:{}", conn.port, conn.protocol)
+        };
+
         Row::new(vec![
             Cell::from(conn.time.clone()),
             Cell::from(conn.action.clone()).style(final_action_style),
-            Cell::from(format!("{}[{}]", conn.process_name, conn.process_id)),
+            Cell::from(process_display),
             Cell::from(conn.destination.clone()),
-            Cell::from(format!("{}:{}", conn.port, conn.protocol)),
+            Cell::from(port_display),
             Cell::from(conn.rule_name.clone().unwrap_or_default()),
         ])
         .style(row_style)

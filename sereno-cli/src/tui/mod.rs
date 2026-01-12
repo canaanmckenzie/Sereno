@@ -7,6 +7,7 @@ pub mod app;
 pub mod events;
 pub mod ui;
 
+use crate::driver::{DriverHandle, DriverVerdict};
 use anyhow::Result;
 use app::{App, ConnectionEvent, DriverStatus, Mode};
 use crossterm::{
@@ -16,15 +17,28 @@ use crossterm::{
 };
 use events::{handle_key_event, poll_event, EventResult};
 use ratatui::{backend::CrosstermBackend, Terminal};
-use sereno_core::{database::Database, rule_engine::RuleEngine};
+use sereno_core::{
+    database::Database,
+    rule_engine::RuleEngine,
+    types::{ConnectionContext, EvalResult},
+};
 use std::{
     io::{self, stdout},
     path::Path,
+    sync::Arc,
     time::Duration,
 };
+use tokio::sync::mpsc;
 
-/// Run the TUI application
+/// Run the TUI application (blocking wrapper for async)
 pub fn run(db_path: &Path) -> Result<()> {
+    // Build a runtime for async operations
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(run_async(db_path))
+}
+
+/// Run the TUI application (async)
+async fn run_async(db_path: &Path) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -38,11 +52,11 @@ pub fn run(db_path: &Path) -> Result<()> {
 
     // Load database and rules
     let db = Database::open(db_path)?;
-    let engine = RuleEngine::new(db.clone())?;
+    let engine = Arc::new(RuleEngine::new(db.clone())?);
     app.rules = engine.rules();
     app.log(format!("Loaded {} rules", app.rules.len()));
 
-    // Check driver status
+    // Check driver status and try to connect
     app.driver_status = check_driver_status();
     app.mode = if app.driver_status == DriverStatus::Running {
         Mode::KernelDriver
@@ -53,13 +67,45 @@ pub fn run(db_path: &Path) -> Result<()> {
 
     app.log(format!("Driver: {}", app.driver_status.label()));
     app.log(format!("Mode: {}", app.mode.label()));
-    app.log(format!("Admin: {}", if app.is_admin { "Yes" } else { "No" }));
 
-    // Add some demo connections for now
-    add_demo_connections(&mut app);
+    // Create channel for driver events
+    let (conn_tx, mut conn_rx) = mpsc::channel::<DriverConnectionEvent>(100);
+
+    // Start driver polling task if driver is available
+    let driver_handle = if app.driver_status == DriverStatus::Running {
+        match DriverHandle::open() {
+            Ok(handle) => {
+                app.log("Connected to driver".to_string());
+                // Enable filtering
+                if let Err(e) = handle.enable_filtering() {
+                    app.log(format!("Warning: Could not enable filtering: {}", e));
+                } else {
+                    app.log("Driver filtering enabled".to_string());
+                }
+                Some(Arc::new(handle))
+            }
+            Err(e) => {
+                app.log(format!("Could not connect to driver: {}", e));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Spawn driver polling task
+    if let Some(ref handle) = driver_handle {
+        let handle_clone = handle.clone();
+        let engine_clone = engine.clone();
+        let tx = conn_tx.clone();
+
+        tokio::spawn(async move {
+            driver_poll_loop(handle_clone, engine_clone, tx).await;
+        });
+    }
 
     // Main event loop
-    let result = run_event_loop(&mut terminal, &mut app);
+    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -69,27 +115,133 @@ pub fn run(db_path: &Path) -> Result<()> {
     result
 }
 
+/// Event from driver polling
+struct DriverConnectionEvent {
+    request_id: u64,
+    event: ConnectionEvent,
+    verdict: EvalResult,
+}
+
+/// Driver polling loop - runs in background task
+async fn driver_poll_loop(
+    handle: Arc<DriverHandle>,
+    engine: Arc<RuleEngine>,
+    tx: mpsc::Sender<DriverConnectionEvent>,
+) {
+    loop {
+        // Poll for pending connection
+        match handle.get_pending() {
+            Ok(Some(req)) => {
+                // Build context for rule evaluation
+                let ctx = ConnectionContext {
+                    process_path: req.process_path.to_string_lossy().to_string(),
+                    process_name: req.process_name.clone(),
+                    process_id: req.process_id,
+                    remote_address: req.remote_address,
+                    remote_port: req.remote_port,
+                    local_port: req.local_port,
+                    protocol: req.protocol,
+                    direction: req.direction,
+                    domain: req.domain.clone(),
+                };
+
+                // Evaluate rules
+                let verdict = engine.evaluate(&ctx);
+
+                // Determine action string and send verdict to driver
+                let (action_str, allow) = match &verdict {
+                    EvalResult::Allow { .. } => ("ALLOW", true),
+                    EvalResult::Deny { .. } => ("DENY", false),
+                    EvalResult::Ask => ("ASK", true), // Default allow for ASK for now
+                };
+
+                // Send verdict to driver immediately
+                let driver_verdict = if allow {
+                    DriverVerdict::Allow
+                } else {
+                    DriverVerdict::Block
+                };
+
+                if let Err(e) = handle.set_verdict(req.request_id, driver_verdict) {
+                    eprintln!("Failed to send verdict: {}", e);
+                }
+
+                // Create UI event
+                let event = ConnectionEvent {
+                    time: chrono::Local::now().format("%H:%M:%S").to_string(),
+                    action: action_str.to_string(),
+                    process_name: req.process_name,
+                    process_id: req.process_id,
+                    destination: req.domain.unwrap_or_else(|| req.remote_address.to_string()),
+                    port: req.remote_port,
+                    protocol: format!("{:?}", req.protocol),
+                    rule_name: match &verdict {
+                        EvalResult::Allow { rule_id } | EvalResult::Deny { rule_id } => {
+                            if rule_id.is_empty() {
+                                None
+                            } else {
+                                Some(rule_id[..8.min(rule_id.len())].to_string())
+                            }
+                        }
+                        EvalResult::Ask => None,
+                    },
+                    is_pending: matches!(verdict, EvalResult::Ask),
+                };
+
+                // Send to UI
+                let _ = tx.send(DriverConnectionEvent {
+                    request_id: req.request_id,
+                    event,
+                    verdict,
+                }).await;
+            }
+            Ok(None) => {
+                // No pending requests, sleep briefly
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            Err(e) => {
+                // Error polling, sleep and retry
+                eprintln!("Driver poll error: {}", e);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
+
 /// Main event loop
-fn run_event_loop(
+async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
+    conn_rx: &mut mpsc::Receiver<DriverConnectionEvent>,
+    _driver_handle: Option<Arc<DriverHandle>>,
 ) -> Result<()> {
     loop {
         // Draw UI
         terminal.draw(|frame| ui::draw(frame, app))?;
 
-        // Poll for events (with 100ms timeout for responsive UI)
-        if let Some(event) = poll_event(Duration::from_millis(100))? {
-            match event {
-                Event::Key(key) => {
-                    if matches!(handle_key_event(app, key), EventResult::Quit) {
-                        break;
+        // Use tokio::select to handle multiple event sources
+        tokio::select! {
+            // Check for keyboard events (non-blocking poll)
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                // Poll keyboard
+                if let Some(event) = poll_event(Duration::from_millis(0))? {
+                    match event {
+                        Event::Key(key) => {
+                            if matches!(handle_key_event(app, key), EventResult::Quit) {
+                                break;
+                            }
+                        }
+                        Event::Resize(_, _) => {
+                            // Terminal resized - just redraw
+                        }
+                        _ => {}
                     }
                 }
-                Event::Resize(_, _) => {
-                    // Terminal resized - just redraw
-                }
-                _ => {}
+            }
+
+            // Check for driver connection events
+            Some(driver_event) = conn_rx.recv() => {
+                app.add_connection(driver_event.event);
             }
         }
 
@@ -97,9 +249,6 @@ fn run_event_loop(
         if app.should_quit {
             break;
         }
-
-        // TODO: Poll for new connections from the service
-        // This would integrate with the driver/service communication
     }
 
     Ok(())

@@ -1442,7 +1442,79 @@ Or directly:
 
 ---
 
-**Document Version:** 2.5
+## Session Addendum #8 - Live Driver Integration in TUI (2026-01-11)
+
+### What Was Changed
+
+Refactored TUI to use async/tokio for live driver polling:
+
+**Architecture:**
+- Main TUI function now wraps async `run_async()` using a tokio runtime
+- Background task spawns `driver_poll_loop()` that continuously polls the driver
+- Uses `mpsc::channel` to send connection events from poll loop to UI thread
+- Main event loop uses `tokio::select!` to handle keyboard and driver events concurrently
+
+**Driver Integration:**
+- Polls driver for pending connections via `handle.get_pending()`
+- Evaluates each connection against rule engine
+- Sends verdict back to driver immediately (`handle.set_verdict()`)
+- Forwards connection event to UI via channel
+
+**Flow:**
+```
+Driver → get_pending() → RuleEngine.evaluate() → set_verdict() → UI channel → app.add_connection()
+```
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `sereno-cli/src/tui/mod.rs` | Async refactor, driver poll loop, channel integration |
+| `sereno-cli/Cargo.toml` | Added tokio, windows crate dependencies |
+
+**Code Structure:**
+```rust
+// Main entry wraps async
+pub fn run(db_path: &Path) -> Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(run_async(db_path))
+}
+
+// Background task polls driver
+async fn driver_poll_loop(handle, engine, tx) {
+    loop {
+        if let Some(req) = handle.get_pending()? {
+            let verdict = engine.evaluate(&ctx);
+            handle.set_verdict(req.request_id, verdict);
+            tx.send(event).await;
+        }
+    }
+}
+
+// Main loop uses select!
+async fn run_event_loop(...) {
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(50ms) => { /* keyboard poll */ }
+            Some(event) = conn_rx.recv() => { app.add_connection(event); }
+        }
+    }
+}
+```
+
+### Testing Status
+
+- Build succeeds with only dead code warnings (acceptable)
+- TUI starts and detects driver status
+- Network traffic flows (curl tests return 200/301)
+- Ready for interactive testing
+
+### Next Step
+
+Run TUI interactively to verify live connections appear in real-time.
+
+---
+
+**Document Version:** 2.6
 **Author:** Sereno Team
 **Last Updated:** 2026-01-11
-**Status:** Phase 3 In Progress - TUI Shell Complete, Live Integration Pending
+**Status:** Phase 3 In Progress - Live Driver Integration Complete, Testing Pending

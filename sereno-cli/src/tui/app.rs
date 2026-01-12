@@ -1,6 +1,6 @@
 //! TUI Application State
 
-use sereno_core::types::{Connection, Rule};
+use sereno_core::types::Rule;
 use std::collections::VecDeque;
 
 /// Active tab in the TUI
