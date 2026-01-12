@@ -1,0 +1,143 @@
+[
+  {
+    "id": "bf1f225e-fc79-4de3-a6ad-c4fa7fba8ee8",
+    "name": "Block Telemetry",
+    "enabled": false,
+    "priority": 100,
+    "action": "deny",
+    "conditions": [
+      {
+        "type": "domain",
+        "patterns": [
+          {
+            "type": "wildcard",
+            "pattern": "*.data.microsoft.com"
+          },
+          {
+            "type": "wildcard",
+            "pattern": "telemetry.*"
+          },
+          {
+            "type": "wildcard",
+            "pattern": "*.telemetry.*"
+          }
+        ]
+      }
+    ],
+    "validity": {
+      "type": "permanent"
+    },
+    "hit_count": 1,
+    "created_at": "2026-01-12T00:33:46.041061300Z",
+    "profile_id": null
+  },
+  {
+    "id": "96bb28fd-f294-41d1-8e06-a7f0feecb212",
+    "name": "Block Google",
+    "enabled": true,
+    "priority": 50,
+    "action": "deny",
+    "conditions": [
+      {
+        "type": "domain",
+        "patterns": [
+          {
+            "type": "wildcard",
+            "pattern": "*.google.com"
+          }
+        ]
+      }
+    ],
+    "validity": {
+      "type": "permanent"
+    },
+    "hit_count": 13,
+    "created_at": "2026-01-12T00:38:54.981728200Z",
+    "profile_id": null
+  },
+  {
+    "id": "9a31b392-d5a9-4d55-9f46-e3242d2044ee",
+    "name": "Allow DNS",
+    "enabled": true,
+    "priority": 0,
+    "action": "allow",
+    "conditions": [
+      {
+        "type": "remote_port",
+        "matcher": {
+          "type": "single",
+          "port": 53
+        }
+      },
+      {
+        "type": "protocol",
+        "protocol": "udp"
+      }
+    ],
+    "validity": {
+      "type": "permanent"
+    },
+    "hit_count": 0,
+    "created_at": "2026-01-12T00:33:46.041055900Z",
+    "profile_id": null
+  },
+  {
+    "id": "99af352c-fbfb-4589-af41-4f441558ef5c",
+    "name": "Allow Local Network",
+    "enabled": true,
+    "priority": 0,
+    "action": "allow",
+    "conditions": [
+      {
+        "type": "remote_address",
+        "matcher": {
+          "type": "list",
+          "addresses": [
+            "192.168.0.0/16",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "127.0.0.0/8"
+          ]
+        }
+      }
+    ],
+    "validity": {
+      "type": "permanent"
+    },
+    "hit_count": 9,
+    "created_at": "2026-01-12T00:33:46.041060600Z",
+    "profile_id": null
+  },
+  {
+    "id": "3ad879fb-41a3-4b9e-a959-000479da6e9a",
+    "name": "Allow Windows Update",
+    "enabled": true,
+    "priority": 0,
+    "action": "allow",
+    "conditions": [
+      {
+        "type": "process_path",
+        "pattern": "C:\\Windows\\System32\\svchost.exe"
+      },
+      {
+        "type": "domain",
+        "patterns": [
+          {
+            "type": "wildcard",
+            "pattern": "*.windowsupdate.com"
+          },
+          {
+            "type": "wildcard",
+            "pattern": "*.microsoft.com"
+          }
+        ]
+      }
+    ],
+    "validity": {
+      "type": "permanent"
+    },
+    "hit_count": 0,
+    "created_at": "2026-01-12T00:33:46.041061Z",
+    "profile_id": null
+  }
+]

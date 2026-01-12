@@ -1,0 +1,59 @@
+Sereno Network Filter - Proprietary License
+Copyright (c) 2026 Canaan McKenzie. All rights reserved.
+
+================================================================================
+                            SOURCE-AVAILABLE LICENSE
+================================================================================
+
+This software and associated documentation files (the "Software") are the
+proprietary property of the copyright holder. The Software is made available
+for viewing and educational purposes only.
+
+PERMISSIONS
+-----------
+You ARE permitted to:
+  - View and read the source code
+  - Study the architecture and implementation for educational purposes
+  - Reference the code in discussions, reviews, or academic contexts
+  - Fork the repository for personal, non-distributed experimentation
+
+RESTRICTIONS
+------------
+You are NOT permitted to, without prior written permission:
+  - Use the Software in any production environment
+  - Use the Software for any commercial purpose
+  - Create derivative works based on the Software
+  - Redistribute the Software in any form (source or binary)
+  - Incorporate any portion of the Software into other projects
+  - Remove or modify any copyright notices or license terms
+  - Use the Software to create a competing product or service
+
+CONTRIBUTIONS
+-------------
+Any contributions (pull requests, patches, suggestions) submitted to this
+project become the property of the copyright holder under these same terms,
+unless a separate agreement is made in writing.
+
+NO WARRANTY
+-----------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+ENFORCEMENT
+-----------
+Violation of these terms may result in legal action. The copyright holder
+reserves all rights not expressly granted herein.
+
+LICENSING INQUIRIES
+-------------------
+For commercial licensing, partnerships, or permission requests, contact:
+Discord: Xavaav
+
+================================================================================
+SPDX-License-Identifier: LicenseRef-Sereno-Proprietary
+================================================================================
