@@ -71,7 +71,7 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> EventResult {
         }
         _ => {
             // Tab-specific handling
-            handle_tab_key(app, key);
+            return handle_tab_key(app, key);
         }
     }
 
@@ -79,7 +79,7 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> EventResult {
 }
 
 /// Handle keys specific to the current tab
-fn handle_tab_key(app: &mut App, key: KeyEvent) {
+fn handle_tab_key(app: &mut App, key: KeyEvent) -> EventResult {
     match app.active_tab {
         Tab::Monitor => handle_monitor_key(app, key),
         Tab::Rules => handle_rules_key(app, key),
@@ -89,7 +89,7 @@ fn handle_tab_key(app: &mut App, key: KeyEvent) {
 }
 
 /// Handle keys in the Monitor tab
-fn handle_monitor_key(app: &mut App, key: KeyEvent) {
+fn handle_monitor_key(app: &mut App, key: KeyEvent) -> EventResult {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             app.select_up();
@@ -124,10 +124,11 @@ fn handle_monitor_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+    EventResult::Continue
 }
 
 /// Handle keys in the Rules tab
-fn handle_rules_key(app: &mut App, key: KeyEvent) {
+fn handle_rules_key(app: &mut App, key: KeyEvent) -> EventResult {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             app.select_up();
@@ -149,13 +150,9 @@ fn handle_rules_key(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('t') | KeyCode::Char('T') => {
             // Toggle enabled
-            // TODO: Actually toggle the rule in database
             if let Some(rule) = app.selected_rule_item() {
-                app.log(format!(
-                    "Toggle rule: {} ({})",
-                    rule.name,
-                    if rule.enabled { "disable" } else { "enable" }
-                ));
+                let rule_id = rule.id.clone();
+                return EventResult::ToggleRule(rule_id);
             }
         }
         KeyCode::Char('d') | KeyCode::Delete => {
@@ -170,10 +167,11 @@ fn handle_rules_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+    EventResult::Continue
 }
 
 /// Handle keys in the Logs tab
-fn handle_logs_key(app: &mut App, key: KeyEvent) {
+fn handle_logs_key(app: &mut App, key: KeyEvent) -> EventResult {
     match key.code {
         KeyCode::Char('c') | KeyCode::Char('C') => {
             app.logs.clear();
@@ -181,10 +179,11 @@ fn handle_logs_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+    EventResult::Continue
 }
 
 /// Handle keys in the Settings tab
-fn handle_settings_key(app: &mut App, key: KeyEvent) {
+fn handle_settings_key(app: &mut App, key: KeyEvent) -> EventResult {
     match key.code {
         KeyCode::Char('d') | KeyCode::Char('D') => {
             // Toggle driver
@@ -198,6 +197,7 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+    EventResult::Continue
 }
 
 /// Handle keys when there's a pending ASK prompt

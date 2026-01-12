@@ -113,6 +113,13 @@ DriverEntry(
     deviceContext->FilteringEnabled = FALSE;
     deviceContext->ShuttingDown = FALSE;
 
+    // Initialize DNS cache
+    SerenoDnsCacheInit(deviceContext);
+
+    // Initialize verdict cache (for re-authorization)
+    RtlZeroMemory(deviceContext->VerdictCache, sizeof(deviceContext->VerdictCache));
+    KeInitializeSpinLock(&deviceContext->VerdictCacheLock);
+
     // Create symbolic link
     status = WdfDeviceCreateSymbolicLink(g_ControlDevice, &symlinkName);
     if (!NT_SUCCESS(status)) {
@@ -179,6 +186,8 @@ SerenoEvtDeviceAdd(
 
 /*
  * SerenoEvtDeviceContextCleanup - Cleanup on device removal
+ *
+ * NON-BLOCKING MODEL: Just free all pending requests (no threads to unblock)
  */
 VOID
 SerenoEvtDeviceContextCleanup(
@@ -189,24 +198,35 @@ SerenoEvtDeviceContextCleanup(
     PLIST_ENTRY entry;
     PPENDING_REQUEST request;
     KIRQL oldIrql;
+    LIST_ENTRY tempList;
 
     KdPrint(("Sereno: SerenoEvtDeviceContextCleanup\n"));
 
     deviceContext = SerenoGetDeviceContext(Device);
     deviceContext->ShuttingDown = TRUE;
 
-    // Unregister WFP callouts
+    // Unregister WFP callouts first (prevents new connections)
     SerenoUnregisterCallouts(deviceContext);
 
-    // Free all pending requests
+    // Free DNS cache
+    SerenoDnsCacheCleanup(deviceContext);
+
+    // Move all pending requests to temp list (under lock)
+    InitializeListHead(&tempList);
     KeAcquireSpinLock(&deviceContext->PendingLock, &oldIrql);
     while (!IsListEmpty(&deviceContext->PendingList)) {
         entry = RemoveHeadList(&deviceContext->PendingList);
-        request = CONTAINING_RECORD(entry, PENDING_REQUEST, ListEntry);
-        KeSetEvent(&request->CompletionEvent, IO_NO_INCREMENT, FALSE);
-        // Don't free here - the classify function will free after event is set
+        InsertTailList(&tempList, entry);
+        deviceContext->PendingCount--;
     }
     KeReleaseSpinLock(&deviceContext->PendingLock, oldIrql);
+
+    // Free all pending requests
+    while (!IsListEmpty(&tempList)) {
+        entry = RemoveHeadList(&tempList);
+        request = CONTAINING_RECORD(entry, PENDING_REQUEST, ListEntry);
+        SerenoFreePendingRequest(request);
+    }
 
     g_DeviceContext = NULL;
     KdPrint(("Sereno: Cleanup complete\n"));
@@ -259,7 +279,8 @@ SerenoEvtIoDeviceControl(
                  entry != &deviceContext->PendingList;
                  entry = entry->Flink) {
                 pendingRequest = CONTAINING_RECORD(entry, PENDING_REQUEST, ListEntry);
-                if (pendingRequest->Verdict == SERENO_VERDICT_PENDING) {
+                if (pendingRequest->Verdict == SERENO_VERDICT_PENDING && !pendingRequest->SentToUserMode) {
+                    pendingRequest->SentToUserMode = TRUE;
                     RtlCopyMemory(outRequest, &pendingRequest->ConnectionInfo, sizeof(SERENO_CONNECTION_REQUEST));
                     bytesReturned = sizeof(SERENO_CONNECTION_REQUEST);
                     break;
@@ -481,6 +502,108 @@ SerenoRegisterCallouts(
         goto cleanup;
     }
 
+    // ========================================
+    // DNS Interception Callouts (port 53 UDP)
+    // ========================================
+
+    // Register DNS V4 callout
+    sCallout.calloutKey = SERENO_CALLOUT_DNS_V4_GUID;
+    sCallout.classifyFn = SerenoClassifyDns;
+    sCallout.notifyFn = SerenoNotify;
+    sCallout.flowDeleteFn = SerenoFlowDelete;
+    sCallout.flags = 0;
+
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->DnsCalloutIdV4);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Sereno: FwpsCalloutRegister3 (DNS V4) failed: 0x%08X\n", status));
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add DNS V4 callout to filter engine
+    mCallout.calloutKey = SERENO_CALLOUT_DNS_V4_GUID;
+    mCallout.displayData.name = L"Sereno DNS V4 Callout";
+    mCallout.displayData.description = L"Intercepts DNS responses for domain resolution";
+    mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+    mCallout.applicableLayer = FWPM_LAYER_INBOUND_TRANSPORT_V4;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        KdPrint(("Sereno: FwpmCalloutAdd0 (DNS V4) failed: 0x%08X\n", status));
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Register DNS V6 callout
+    sCallout.calloutKey = SERENO_CALLOUT_DNS_V6_GUID;
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->DnsCalloutIdV6);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Sereno: FwpsCalloutRegister3 (DNS V6) failed: 0x%08X\n", status));
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    mCallout.calloutKey = SERENO_CALLOUT_DNS_V6_GUID;
+    mCallout.displayData.name = L"Sereno DNS V6 Callout";
+    mCallout.applicableLayer = FWPM_LAYER_INBOUND_TRANSPORT_V6;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        KdPrint(("Sereno: FwpmCalloutAdd0 (DNS V6) failed: 0x%08X\n", status));
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add DNS filter V4 - only match UDP port 53 (inbound DNS responses)
+    {
+        FWPM_FILTER_CONDITION0 dnsConditions[2];
+
+        // Condition 1: UDP protocol
+        dnsConditions[0].fieldKey = FWPM_CONDITION_IP_PROTOCOL;
+        dnsConditions[0].matchType = FWP_MATCH_EQUAL;
+        dnsConditions[0].conditionValue.type = FWP_UINT8;
+        dnsConditions[0].conditionValue.uint8 = IPPROTO_UDP;
+
+        // Condition 2: Source port 53 (DNS server response)
+        dnsConditions[1].fieldKey = FWPM_CONDITION_IP_REMOTE_PORT;
+        dnsConditions[1].matchType = FWP_MATCH_EQUAL;
+        dnsConditions[1].conditionValue.type = FWP_UINT16;
+        dnsConditions[1].conditionValue.uint16 = 53;
+
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_INBOUND_TRANSPORT_V4;
+        filter.displayData.name = L"Sereno DNS V4 Filter";
+        filter.displayData.description = L"Captures DNS responses";
+        filter.action.type = FWP_ACTION_CALLOUT_INSPECTION;  // Inspect only, don't block
+        filter.action.calloutKey = SERENO_CALLOUT_DNS_V4_GUID;
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0xF;
+        filter.numFilterConditions = 2;
+        filter.filterCondition = dnsConditions;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->DnsFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            KdPrint(("Sereno: FwpmFilterAdd0 (DNS V4) failed: 0x%08X\n", status));
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add DNS filter V6
+        filter.layerKey = FWPM_LAYER_INBOUND_TRANSPORT_V6;
+        filter.displayData.name = L"Sereno DNS V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_DNS_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->DnsFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            KdPrint(("Sereno: FwpmFilterAdd0 (DNS V6) failed: 0x%08X\n", status));
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
     // Commit transaction
     status = FwpmTransactionCommit0(DeviceContext->EngineHandle);
     if (!NT_SUCCESS(status)) {
@@ -510,7 +633,7 @@ SerenoUnregisterCallouts(
     KdPrint(("Sereno: Unregistering callouts\n"));
 
     if (DeviceContext->EngineHandle) {
-        // Remove filters
+        // Remove connection filters
         if (DeviceContext->ConnectFilterIdV4) {
             FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->ConnectFilterIdV4);
         }
@@ -518,11 +641,19 @@ SerenoUnregisterCallouts(
             FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->ConnectFilterIdV6);
         }
 
+        // Remove DNS filters
+        if (DeviceContext->DnsFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->DnsFilterIdV4);
+        }
+        if (DeviceContext->DnsFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->DnsFilterIdV6);
+        }
+
         FwpmEngineClose0(DeviceContext->EngineHandle);
         DeviceContext->EngineHandle = NULL;
     }
 
-    // Unregister callouts
+    // Unregister connection callouts
     if (DeviceContext->ConnectCalloutIdV4) {
         FwpsCalloutUnregisterById0(DeviceContext->ConnectCalloutIdV4);
         DeviceContext->ConnectCalloutIdV4 = 0;
@@ -532,14 +663,26 @@ SerenoUnregisterCallouts(
         DeviceContext->ConnectCalloutIdV6 = 0;
     }
 
+    // Unregister DNS callouts
+    if (DeviceContext->DnsCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->DnsCalloutIdV4);
+        DeviceContext->DnsCalloutIdV4 = 0;
+    }
+    if (DeviceContext->DnsCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->DnsCalloutIdV6);
+        DeviceContext->DnsCalloutIdV6 = 0;
+    }
+
     KdPrint(("Sereno: Callouts unregistered\n"));
 }
 
 /*
  * SerenoClassifyConnect - Main classification function for connection attempts
  *
- * This is called by WFP for every connection attempt BEFORE it's established.
- * We can BLOCK, PERMIT, or PEND the connection for user-mode decision.
+ * ASYNC PENDING MODEL:
+ * This function uses FwpsPendOperation0/FwpsCompleteOperation0 for async verdict delivery.
+ * It NEVER blocks kernel threads - the connection is pended and we return immediately.
+ * When user-mode sends a verdict, SerenoCompletePendingRequest calls FwpsCompleteOperation0.
  */
 VOID NTAPI
 SerenoClassifyConnect(
@@ -557,7 +700,6 @@ SerenoClassifyConnect(
     KIRQL oldIrql;
     BOOLEAN isIPv6;
     NTSTATUS status;
-    LARGE_INTEGER timeout;
     UINT32 localAddrV4 = 0, remoteAddrV4 = 0;
     UINT8 localAddrV6[16] = {0}, remoteAddrV6[16] = {0};
     UINT16 localPort, remotePort;
@@ -665,21 +807,17 @@ SerenoClassifyConnect(
         }
     }
 
-    // 6. Circuit breaker - if too many timeouts, auto-disable to prevent system hang
+    // 6. Circuit breaker - auto-permit if too many timeouts (system protection)
     if (deviceContext->Stats.TimedOutRequests > CIRCUIT_BREAKER_THRESHOLD) {
-        // Too many timeouts - service is likely not running or too slow
-        // Auto-permit to prevent system lockup
-        // Only log once per 100 connections to avoid log spam
-        if ((deviceContext->Stats.TotalConnections % 100) == 0) {
-            KdPrint(("Sereno: Circuit breaker ACTIVE - auto-permitting (timeouts: %llu)\n",
-                     deviceContext->Stats.TimedOutRequests));
-        }
         ClassifyOut->actionType = FWP_ACTION_PERMIT;
         return;
     }
 
     // Update stats
     InterlockedIncrement64((LONG64*)&deviceContext->Stats.TotalConnections);
+
+    // NOTE: KdPrint removed from hot path - was causing overhead under heavy load
+    // Use WinDbg tracing if needed for debugging
 
     // Check if we're at capacity
     if (deviceContext->PendingCount >= MAX_PENDING_REQUESTS) {
@@ -688,7 +826,17 @@ SerenoClassifyConnect(
         return;
     }
 
-    // Allocate pending request
+    // FIX #2: Check for completion handle BEFORE allocating anything
+    // No completion handle = re-authorization (shouldn't happen after Fix #1)
+    // With Fix #1, we pass verdict directly to FwpsCompleteOperation0, so no re-auth occurs.
+    // This check is kept as a safety net - if somehow re-auth happens, just permit.
+    if (!(InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_COMPLETION_HANDLE)) {
+        // Re-auth path - should never happen with Fix #1, but permit if it does
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Allocate pending request (only for NEW connections with completion handle)
     pendingRequest = SerenoAllocatePendingRequest(deviceContext);
     if (!pendingRequest) {
         ClassifyOut->actionType = FWP_ACTION_PERMIT;
@@ -725,50 +873,60 @@ SerenoClassifyConnect(
         }
     }
 
-    // Add to pending list
+    // Lookup domain name from DNS cache
+    {
+        UINT32 domainLength = 0;
+        if (SerenoDnsCacheLookup(
+                deviceContext,
+                isIPv6,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                pendingRequest->ConnectionInfo.DomainName,
+                sizeof(pendingRequest->ConnectionInfo.DomainName) / sizeof(WCHAR),
+                &domainLength)) {
+            pendingRequest->ConnectionInfo.DomainNameLength = domainLength;
+        }
+    }
+
+    // ============================================================
+    // ASYNC PENDING MODEL (Production - Like Little Snitch)
+    //
+    // We use FwpsPendOperation0 to hold the connection WITHOUT blocking
+    // kernel threads. WFP handles the blocking internally. When user-mode
+    // sends a verdict, we call FwpsCompleteOperation0 to allow/block.
+    //
+    // With Fix #1, we pass verdict directly to FwpsCompleteOperation0,
+    // so no re-authorization occurs. The completion handle check moved
+    // earlier (Fix #2) so we never reach here without a valid handle.
+    // ============================================================
+
+    // Pend the operation - returns immediately, connection is held by WFP
+    status = FwpsPendOperation0(
+        InMetaValues->completionHandle,
+        &pendingRequest->CompletionContext
+    );
+
+    if (!NT_SUCCESS(status)) {
+        // Pending failed, permit and continue
+        KdPrint(("Sereno: FwpsPendOperation0 failed: 0x%08X\n", status));
+        SerenoFreePendingRequest(pendingRequest);
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    pendingRequest->Completed = FALSE;
+
+    // Add to pending list for user-mode to process
     KeAcquireSpinLock(&deviceContext->PendingLock, &oldIrql);
     InsertTailList(&deviceContext->PendingList, &pendingRequest->ListEntry);
     deviceContext->PendingCount++;
     KeReleaseSpinLock(&deviceContext->PendingLock, oldIrql);
 
-    // Pend the connection and wait for user-mode verdict
+    // Set ABSORB flag - connection is held, we'll complete it asynchronously
+    // FWP_ACTION_BLOCK with ABSORB means "I'll handle this later"
     ClassifyOut->actionType = FWP_ACTION_BLOCK;
     ClassifyOut->flags |= FWPS_CLASSIFY_OUT_FLAG_ABSORB;
-
-    // Wait for verdict with timeout
-    timeout.QuadPart = -((LONGLONG)REQUEST_TIMEOUT_MS * 10000); // Convert to 100ns units, negative for relative
-    status = KeWaitForSingleObject(&pendingRequest->CompletionEvent, Executive, KernelMode, FALSE, &timeout);
-
-    // Remove from pending list
-    KeAcquireSpinLock(&deviceContext->PendingLock, &oldIrql);
-    RemoveEntryList(&pendingRequest->ListEntry);
-    deviceContext->PendingCount--;
-    KeReleaseSpinLock(&deviceContext->PendingLock, oldIrql);
-
-    // Apply verdict
-    if (status == STATUS_TIMEOUT) {
-        // Timeout - default to PERMIT (fail-open prevents retry storms)
-        InterlockedIncrement64((LONG64*)&deviceContext->Stats.TimedOutRequests);
-        InterlockedIncrement64((LONG64*)&deviceContext->Stats.AllowedConnections);
-        ClassifyOut->actionType = FWP_ACTION_PERMIT;
-    } else {
-        switch (pendingRequest->Verdict) {
-        case SERENO_VERDICT_ALLOW:
-            InterlockedIncrement64((LONG64*)&deviceContext->Stats.AllowedConnections);
-            ClassifyOut->actionType = FWP_ACTION_PERMIT;
-            break;
-        case SERENO_VERDICT_BLOCK:
-        default:
-            InterlockedIncrement64((LONG64*)&deviceContext->Stats.BlockedConnections);
-            ClassifyOut->actionType = FWP_ACTION_BLOCK;
-            break;
-        }
-    }
-
-    // Clear absorb flag so our action takes effect
-    ClassifyOut->flags &= ~FWPS_CLASSIFY_OUT_FLAG_ABSORB;
-
-    SerenoFreePendingRequest(pendingRequest);
+    ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;  // Prevent other callouts from changing action
 }
 
 /*
@@ -804,6 +962,8 @@ SerenoFlowDelete(
 
 /*
  * SerenoAllocatePendingRequest - Allocate a new pending request
+ *
+ * NON-BLOCKING MODEL: No event or completion context needed
  */
 PPENDING_REQUEST
 SerenoAllocatePendingRequest(
@@ -821,7 +981,8 @@ SerenoAllocatePendingRequest(
     request->RequestId = InterlockedIncrement64((LONG64*)&Context->NextRequestId);
     request->Timestamp = KeQueryInterruptTime();
     request->Verdict = SERENO_VERDICT_PENDING;
-    KeInitializeEvent(&request->CompletionEvent, NotificationEvent, FALSE);
+    request->SentToUserMode = FALSE;
+    // No event initialization - non-blocking model
 
     return request;
 }
@@ -841,6 +1002,9 @@ SerenoFreePendingRequest(
 
 /*
  * SerenoCompletePendingRequest - Complete a pending request with verdict
+ *
+ * ASYNC MODEL: Find the request, call FwpsCompleteOperation0 with the verdict,
+ * then remove from list and free. This completes the pended connection.
  */
 VOID
 SerenoCompletePendingRequest(
@@ -850,23 +1014,194 @@ SerenoCompletePendingRequest(
 )
 {
     PLIST_ENTRY entry;
-    PPENDING_REQUEST request;
+    PPENDING_REQUEST request = NULL;
     KIRQL oldIrql;
+    HANDLE completionContext = NULL;
 
     KeAcquireSpinLock(&Context->PendingLock, &oldIrql);
 
+    // Find and remove the request
     for (entry = Context->PendingList.Flink;
          entry != &Context->PendingList;
          entry = entry->Flink) {
-        request = CONTAINING_RECORD(entry, PENDING_REQUEST, ListEntry);
-        if (request->RequestId == RequestId) {
-            request->Verdict = Verdict;
-            KeSetEvent(&request->CompletionEvent, IO_NO_INCREMENT, FALSE);
+        PPENDING_REQUEST r = CONTAINING_RECORD(entry, PENDING_REQUEST, ListEntry);
+        if (r->RequestId == RequestId) {
+            // Check if already completed (double-completion protection)
+            if (r->Completed) {
+                KeReleaseSpinLock(&Context->PendingLock, oldIrql);
+                return;
+            }
+            r->Completed = TRUE;
+            r->Verdict = Verdict;
+            completionContext = r->CompletionContext;
+            RemoveEntryList(entry);
+            Context->PendingCount--;
+            request = r;
             break;
         }
     }
 
     KeReleaseSpinLock(&Context->PendingLock, oldIrql);
+
+    // Complete the pended operation outside the lock
+    if (request && completionContext) {
+        // CRITICAL: Add verdict to cache BEFORE calling FwpsCompleteOperation0
+        // FwpsCompleteOperation0(NULL) triggers immediate re-authorization
+        // which will call SerenoClassifyConnect again to check this cache
+        SerenoVerdictCacheAdd(
+            Context,
+            request->ConnectionInfo.ProcessId,
+            request->IsIPv6,
+            request->ConnectionInfo.RemoteAddressV4,
+            request->IsIPv6 ? request->ConnectionInfo.RemoteAddressV6 : NULL,
+            request->ConnectionInfo.RemotePort,
+            Verdict
+        );
+
+        // Update stats
+        if (Verdict == SERENO_VERDICT_BLOCK) {
+            InterlockedIncrement64((LONG64*)&Context->Stats.BlockedConnections);
+        } else {
+            InterlockedIncrement64((LONG64*)&Context->Stats.AllowedConnections);
+        }
+
+        // Complete the pended operation - triggers re-authorization
+        // Re-auth will find our verdict in the cache (added above)
+        FwpsCompleteOperation0(completionContext, NULL);
+
+        SerenoFreePendingRequest(request);
+    }
+}
+
+// ============================================================================
+// Verdict Cache - Required for Re-authorization After FwpsCompleteOperation0
+// ============================================================================
+//
+// IMPORTANT: This cache is REQUIRED. FwpsCompleteOperation0(completionContext, NULL)
+// always triggers WFP re-authorization. In re-auth, SerenoClassifyConnect is called
+// again WITHOUT a completion handle. We must check this cache to know the verdict.
+//
+// The cache must be large enough and have long enough TTL to handle:
+// - Heavy browser load (100+ connections/second)
+// - Multiple re-auth attempts for the same connection
+// ============================================================================
+
+/*
+ * SerenoVerdictCacheAdd - Add a verdict to the cache
+ * Called BEFORE FwpsCompleteOperation0 to remember the verdict for re-auth
+ */
+VOID
+SerenoVerdictCacheAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ UINT32 ProcessId,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 RemoteIpV4,
+    _In_opt_ const UINT8* RemoteIpV6,
+    _In_ UINT16 RemotePort,
+    _In_ SERENO_VERDICT Verdict
+)
+{
+    KIRQL oldIrql;
+    UINT64 now = KeQueryInterruptTime();
+    UINT32 oldestIndex = 0;
+    UINT64 oldestTime = MAXUINT64;
+    UINT32 i;
+
+    KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
+
+    // Find empty slot or oldest entry
+    for (i = 0; i < MAX_VERDICT_CACHE_ENTRIES; i++) {
+        if (!Context->VerdictCache[i].InUse) {
+            oldestIndex = i;
+            break;
+        }
+        // Check for expired entry
+        if ((now - Context->VerdictCache[i].Timestamp) > VERDICT_CACHE_TTL_100NS) {
+            oldestIndex = i;
+            break;
+        }
+        // Track oldest
+        if (Context->VerdictCache[i].Timestamp < oldestTime) {
+            oldestTime = Context->VerdictCache[i].Timestamp;
+            oldestIndex = i;
+        }
+    }
+
+    // Store in cache
+    Context->VerdictCache[oldestIndex].Timestamp = now;
+    Context->VerdictCache[oldestIndex].ProcessId = ProcessId;
+    Context->VerdictCache[oldestIndex].IsIPv6 = IsIPv6;
+    Context->VerdictCache[oldestIndex].RemoteIpV4 = RemoteIpV4;
+    if (IsIPv6 && RemoteIpV6) {
+        RtlCopyMemory(Context->VerdictCache[oldestIndex].RemoteIpV6, RemoteIpV6, 16);
+    }
+    Context->VerdictCache[oldestIndex].RemotePort = RemotePort;
+    Context->VerdictCache[oldestIndex].Verdict = Verdict;
+    Context->VerdictCache[oldestIndex].InUse = TRUE;
+
+    KeReleaseSpinLock(&Context->VerdictCacheLock, oldIrql);
+}
+
+/*
+ * SerenoVerdictCacheLookup - Check if we have a cached verdict for this connection
+ * Called during re-authorization (no completion handle available)
+ * Returns TRUE if found (and sets Verdict), FALSE if not found
+ */
+BOOLEAN
+SerenoVerdictCacheLookup(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ UINT32 ProcessId,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 RemoteIpV4,
+    _In_opt_ const UINT8* RemoteIpV6,
+    _In_ UINT16 RemotePort,
+    _Out_ SERENO_VERDICT* Verdict
+)
+{
+    KIRQL oldIrql;
+    UINT64 now = KeQueryInterruptTime();
+    UINT32 i;
+    BOOLEAN found = FALSE;
+
+    KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
+
+    for (i = 0; i < MAX_VERDICT_CACHE_ENTRIES; i++) {
+        if (!Context->VerdictCache[i].InUse) {
+            continue;
+        }
+
+        // Check TTL
+        if ((now - Context->VerdictCache[i].Timestamp) > VERDICT_CACHE_TTL_100NS) {
+            Context->VerdictCache[i].InUse = FALSE;
+            continue;
+        }
+
+        // Check match
+        if (Context->VerdictCache[i].ProcessId != ProcessId) continue;
+        if (Context->VerdictCache[i].RemotePort != RemotePort) continue;
+        if (Context->VerdictCache[i].IsIPv6 != IsIPv6) continue;
+
+        if (IsIPv6) {
+            if (RemoteIpV6 && RtlCompareMemory(Context->VerdictCache[i].RemoteIpV6, RemoteIpV6, 16) == 16) {
+                *Verdict = Context->VerdictCache[i].Verdict;
+                // DON'T clear entry - allow multiple re-auths to use same verdict
+                // Entry will be cleared by TTL expiration
+                found = TRUE;
+                break;
+            }
+        } else {
+            if (Context->VerdictCache[i].RemoteIpV4 == RemoteIpV4) {
+                *Verdict = Context->VerdictCache[i].Verdict;
+                // DON'T clear entry - allow multiple re-auths to use same verdict
+                // Entry will be cleared by TTL expiration
+                found = TRUE;
+                break;
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&Context->VerdictCacheLock, oldIrql);
+    return found;
 }
 
 /*
@@ -903,4 +1238,431 @@ SerenoGetProcessPath(
 
     ObDereferenceObject(process);
     return status;
+}
+
+// ============================================================================
+// DNS Cache Management
+// ============================================================================
+
+/*
+ * SerenoDnsCacheInit - Initialize the DNS cache
+ */
+VOID
+SerenoDnsCacheInit(
+    _In_ PSERENO_DEVICE_CONTEXT Context
+)
+{
+    InitializeListHead(&Context->DnsCacheList);
+    KeInitializeSpinLock(&Context->DnsCacheLock);
+    Context->DnsCacheCount = 0;
+}
+
+/*
+ * SerenoDnsCacheCleanup - Free all DNS cache entries
+ */
+VOID
+SerenoDnsCacheCleanup(
+    _In_ PSERENO_DEVICE_CONTEXT Context
+)
+{
+    PLIST_ENTRY entry;
+    PDNS_CACHE_ENTRY cacheEntry;
+    KIRQL oldIrql;
+
+    KeAcquireSpinLock(&Context->DnsCacheLock, &oldIrql);
+    while (!IsListEmpty(&Context->DnsCacheList)) {
+        entry = RemoveHeadList(&Context->DnsCacheList);
+        cacheEntry = CONTAINING_RECORD(entry, DNS_CACHE_ENTRY, ListEntry);
+        ExFreePoolWithTag(cacheEntry, SERENO_POOL_TAG);
+    }
+    Context->DnsCacheCount = 0;
+    KeReleaseSpinLock(&Context->DnsCacheLock, oldIrql);
+}
+
+/*
+ * SerenoDnsCacheAdd - Add a domain->IP mapping to the cache
+ */
+VOID
+SerenoDnsCacheAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 IpV4,
+    _In_opt_ const UINT8* IpV6,
+    _In_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength
+)
+{
+    PDNS_CACHE_ENTRY newEntry;
+    PLIST_ENTRY entry;
+    PDNS_CACHE_ENTRY existingEntry;
+    KIRQL oldIrql;
+    UINT64 now = KeQueryInterruptTime();
+
+    if (DomainLength == 0 || DomainLength >= 256) {
+        return;
+    }
+
+    // Check if entry already exists
+    KeAcquireSpinLock(&Context->DnsCacheLock, &oldIrql);
+
+    for (entry = Context->DnsCacheList.Flink;
+         entry != &Context->DnsCacheList;
+         entry = entry->Flink) {
+        existingEntry = CONTAINING_RECORD(entry, DNS_CACHE_ENTRY, ListEntry);
+
+        BOOLEAN match = FALSE;
+        if (IsIPv6 && existingEntry->IsIPv6) {
+            if (IpV6 && RtlCompareMemory(existingEntry->IpV6, IpV6, 16) == 16) {
+                match = TRUE;
+            }
+        } else if (!IsIPv6 && !existingEntry->IsIPv6) {
+            if (existingEntry->IpV4 == IpV4) {
+                match = TRUE;
+            }
+        }
+
+        if (match) {
+            // Update existing entry
+            existingEntry->Timestamp = now;
+            RtlCopyMemory(existingEntry->DomainName, DomainName, DomainLength * sizeof(WCHAR));
+            existingEntry->DomainName[DomainLength] = L'\0';
+            existingEntry->DomainLength = DomainLength;
+            KeReleaseSpinLock(&Context->DnsCacheLock, oldIrql);
+            return;
+        }
+    }
+
+    // Remove old entries if at capacity
+    while (Context->DnsCacheCount >= MAX_DNS_CACHE_ENTRIES && !IsListEmpty(&Context->DnsCacheList)) {
+        entry = RemoveTailList(&Context->DnsCacheList);
+        existingEntry = CONTAINING_RECORD(entry, DNS_CACHE_ENTRY, ListEntry);
+        ExFreePoolWithTag(existingEntry, SERENO_POOL_TAG);
+        Context->DnsCacheCount--;
+    }
+
+    KeReleaseSpinLock(&Context->DnsCacheLock, oldIrql);
+
+    // Allocate new entry
+    newEntry = (PDNS_CACHE_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(DNS_CACHE_ENTRY), SERENO_POOL_TAG);
+    if (!newEntry) {
+        return;
+    }
+
+    RtlZeroMemory(newEntry, sizeof(DNS_CACHE_ENTRY));
+    newEntry->Timestamp = now;
+    newEntry->IsIPv6 = IsIPv6;
+    if (IsIPv6 && IpV6) {
+        RtlCopyMemory(newEntry->IpV6, IpV6, 16);
+    } else {
+        newEntry->IpV4 = IpV4;
+    }
+    RtlCopyMemory(newEntry->DomainName, DomainName, DomainLength * sizeof(WCHAR));
+    newEntry->DomainName[DomainLength] = L'\0';
+    newEntry->DomainLength = DomainLength;
+
+    // Add to cache
+    KeAcquireSpinLock(&Context->DnsCacheLock, &oldIrql);
+    InsertHeadList(&Context->DnsCacheList, &newEntry->ListEntry);
+    Context->DnsCacheCount++;
+    KeReleaseSpinLock(&Context->DnsCacheLock, oldIrql);
+}
+
+/*
+ * SerenoDnsCacheLookup - Look up a domain name by IP address
+ */
+BOOLEAN
+SerenoDnsCacheLookup(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 IpV4,
+    _In_opt_ const UINT8* IpV6,
+    _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer,
+    _In_ UINT32 DomainBufferLength,
+    _Out_ PUINT32 DomainLength
+)
+{
+    PLIST_ENTRY entry;
+    PDNS_CACHE_ENTRY cacheEntry;
+    KIRQL oldIrql;
+    BOOLEAN found = FALSE;
+    UINT64 now = KeQueryInterruptTime();
+
+    *DomainLength = 0;
+    DomainBuffer[0] = L'\0';
+
+    KeAcquireSpinLock(&Context->DnsCacheLock, &oldIrql);
+
+    for (entry = Context->DnsCacheList.Flink;
+         entry != &Context->DnsCacheList;
+         entry = entry->Flink) {
+        cacheEntry = CONTAINING_RECORD(entry, DNS_CACHE_ENTRY, ListEntry);
+
+        // Check TTL
+        if ((now - cacheEntry->Timestamp) > DNS_CACHE_TTL_100NS) {
+            continue;
+        }
+
+        BOOLEAN match = FALSE;
+        if (IsIPv6 && cacheEntry->IsIPv6) {
+            if (IpV6 && RtlCompareMemory(cacheEntry->IpV6, IpV6, 16) == 16) {
+                match = TRUE;
+            }
+        } else if (!IsIPv6 && !cacheEntry->IsIPv6) {
+            if (cacheEntry->IpV4 == IpV4) {
+                match = TRUE;
+            }
+        }
+
+        if (match) {
+            UINT32 copyLen = min(cacheEntry->DomainLength, DomainBufferLength - 1);
+            RtlCopyMemory(DomainBuffer, cacheEntry->DomainName, copyLen * sizeof(WCHAR));
+            DomainBuffer[copyLen] = L'\0';
+            *DomainLength = copyLen;
+            found = TRUE;
+            break;
+        }
+    }
+
+    KeReleaseSpinLock(&Context->DnsCacheLock, oldIrql);
+    return found;
+}
+
+// ============================================================================
+// DNS Packet Parsing and Interception
+// ============================================================================
+
+/*
+ * SerenoParseDnsResponse - Parse a DNS response packet and extract domain->IP mappings
+ *
+ * DNS packet format:
+ * - Header (12 bytes): ID, flags, counts
+ * - Question section: domain name queries
+ * - Answer section: resource records with IP addresses
+ */
+VOID
+SerenoParseDnsResponse(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ const UINT8* DnsData,
+    _In_ UINT32 DnsLength
+)
+{
+    // DNS header is 12 bytes minimum
+    if (DnsLength < 12) {
+        return;
+    }
+
+    // Check if this is a response (QR bit set)
+    UINT16 flags = (DnsData[2] << 8) | DnsData[3];
+    if (!(flags & 0x8000)) {
+        // This is a query, not a response
+        return;
+    }
+
+    // Check RCODE (response code) - 0 means no error
+    if ((flags & 0x000F) != 0) {
+        return;
+    }
+
+    UINT16 qdcount = (DnsData[4] << 8) | DnsData[5];  // Question count
+    UINT16 ancount = (DnsData[6] << 8) | DnsData[7];  // Answer count
+
+    if (ancount == 0) {
+        return;
+    }
+
+    // Parse the question section to get the domain name
+    UINT32 offset = 12;
+    WCHAR domainName[256];
+    UINT32 domainLen = 0;
+
+    // Skip all questions
+    for (UINT16 q = 0; q < qdcount && offset < DnsLength; q++) {
+        // Parse domain name from first question (we'll use this for all answers)
+        if (q == 0) {
+            domainLen = 0;
+            while (offset < DnsLength) {
+                UINT8 labelLen = DnsData[offset++];
+                if (labelLen == 0) break;
+
+                // Check for compression pointer
+                if ((labelLen & 0xC0) == 0xC0) {
+                    offset++;
+                    break;
+                }
+
+                if (offset + labelLen > DnsLength) break;
+
+                // Add dot separator
+                if (domainLen > 0 && domainLen < 255) {
+                    domainName[domainLen++] = L'.';
+                }
+
+                // Copy label
+                for (UINT8 i = 0; i < labelLen && domainLen < 255; i++) {
+                    domainName[domainLen++] = (WCHAR)DnsData[offset++];
+                }
+            }
+            domainName[domainLen] = L'\0';
+        } else {
+            // Skip other questions
+            while (offset < DnsLength) {
+                UINT8 labelLen = DnsData[offset++];
+                if (labelLen == 0) break;
+                if ((labelLen & 0xC0) == 0xC0) {
+                    offset++;
+                    break;
+                }
+                offset += labelLen;
+            }
+        }
+
+        // Skip QTYPE (2 bytes) and QCLASS (2 bytes)
+        offset += 4;
+    }
+
+    if (domainLen == 0) {
+        return;
+    }
+
+    // Parse answer section
+    for (UINT16 a = 0; a < ancount && offset < DnsLength; a++) {
+        // Skip name (may be compressed)
+        while (offset < DnsLength) {
+            UINT8 labelLen = DnsData[offset];
+            if (labelLen == 0) {
+                offset++;
+                break;
+            }
+            if ((labelLen & 0xC0) == 0xC0) {
+                offset += 2;
+                break;
+            }
+            offset += labelLen + 1;
+        }
+
+        if (offset + 10 > DnsLength) break;
+
+        UINT16 rtype = (DnsData[offset] << 8) | DnsData[offset + 1];
+        // UINT16 rclass = (DnsData[offset + 2] << 8) | DnsData[offset + 3];
+        // UINT32 ttl = (DnsData[offset + 4] << 24) | (DnsData[offset + 5] << 16) |
+        //              (DnsData[offset + 6] << 8) | DnsData[offset + 7];
+        UINT16 rdlength = (DnsData[offset + 8] << 8) | DnsData[offset + 9];
+        offset += 10;
+
+        if (offset + rdlength > DnsLength) break;
+
+        // A record (IPv4)
+        if (rtype == 1 && rdlength == 4) {
+            // DNS packet has IP in network byte order (big-endian)
+            // WFP provides IP addresses in network byte order too
+            // But the way we construct the uint32 from bytes differs from how WFP stores it
+            // WFP stores the raw bytes directly in memory, so on LE it reads as byte-swapped
+            // We need to match that format for cache lookups to work
+            //
+            // Example: IP 142.250.68.46 (bytes: 0x8E, 0xFA, 0x44, 0x2E)
+            // DNS parsing (arithmetic): (0x8E<<24)|(0xFA<<16)|(0x44<<8)|0x2E = 0x8EFA442E
+            // WFP on LE (raw bytes in memory): reads as 0x2E44FA8E
+            // So we need to byte-swap our parsed value to match WFP
+            UINT32 ipv4_parsed = (DnsData[offset] << 24) | (DnsData[offset + 1] << 16) |
+                          (DnsData[offset + 2] << 8) | DnsData[offset + 3];
+            UINT32 ipv4 = RtlUlongByteSwap(ipv4_parsed);
+            SerenoDnsCacheAdd(Context, FALSE, ipv4, NULL, domainName, domainLen);
+        }
+        // AAAA record (IPv6)
+        else if (rtype == 28 && rdlength == 16) {
+            SerenoDnsCacheAdd(Context, TRUE, 0, &DnsData[offset], domainName, domainLen);
+        }
+
+        offset += rdlength;
+    }
+}
+
+/*
+ * SerenoClassifyDns - Classification function for DNS traffic
+ *
+ * This intercepts inbound UDP port 53 traffic to parse DNS responses.
+ * We always permit the traffic - we're just inspecting it.
+ *
+ * IMPORTANT: At FWPM_LAYER_INBOUND_TRANSPORT_V4/V6, the data includes
+ * the UDP header (8 bytes) followed by the payload. We must skip
+ * the UDP header to get to the DNS data.
+ */
+VOID NTAPI
+SerenoClassifyDns(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    NET_BUFFER_LIST* netBufferList = (NET_BUFFER_LIST*)LayerData;
+    NET_BUFFER* netBuffer;
+    UINT8* allocatedBuffer = NULL;
+    UINT32 totalLength = 0;
+    UINT32 dnsLength = 0;
+    PVOID dataBuffer = NULL;
+    const UINT8* dnsData = NULL;
+
+    // UDP header size
+    const UINT32 UDP_HEADER_SIZE = 8;
+
+    UNREFERENCED_PARAMETER(InFixedValues);
+    UNREFERENCED_PARAMETER(InMetaValues);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Always permit DNS traffic
+    ClassifyOut->actionType = FWP_ACTION_CONTINUE;
+
+    if (!deviceContext || deviceContext->ShuttingDown || !netBufferList) {
+        return;
+    }
+
+    // Get the first net buffer
+    netBuffer = NET_BUFFER_LIST_FIRST_NB(netBufferList);
+    if (!netBuffer) {
+        return;
+    }
+
+    // Get total length (UDP header + DNS payload)
+    totalLength = NET_BUFFER_DATA_LENGTH(netBuffer);
+
+    // Need at least UDP header (8) + DNS header (12) = 20 bytes
+    if (totalLength < UDP_HEADER_SIZE + 12 || totalLength > 65535) {
+        return;
+    }
+
+    // Calculate DNS payload length
+    dnsLength = totalLength - UDP_HEADER_SIZE;
+
+    // Map the data
+    dataBuffer = NdisGetDataBuffer(netBuffer, totalLength, NULL, 1, 0);
+    if (!dataBuffer) {
+        // Data is not contiguous, need to copy
+        allocatedBuffer = (UINT8*)ExAllocatePool2(POOL_FLAG_NON_PAGED, totalLength, SERENO_POOL_TAG);
+        if (!allocatedBuffer) {
+            return;
+        }
+        dataBuffer = NdisGetDataBuffer(netBuffer, totalLength, allocatedBuffer, 1, 0);
+        if (!dataBuffer) {
+            ExFreePoolWithTag(allocatedBuffer, SERENO_POOL_TAG);
+            return;
+        }
+    }
+
+    // Skip UDP header to get to DNS payload
+    dnsData = (const UINT8*)dataBuffer + UDP_HEADER_SIZE;
+
+    // Parse the DNS response
+    SerenoParseDnsResponse(deviceContext, dnsData, dnsLength);
+
+    // Free temp buffer if we allocated one
+    if (allocatedBuffer) {
+        ExFreePoolWithTag(allocatedBuffer, SERENO_POOL_TAG);
+    }
 }

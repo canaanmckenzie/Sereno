@@ -122,10 +122,14 @@ mod windows_impl {
                 _ => Direction::Any,
             };
 
+            // WFP provides IPv4 addresses with raw bytes in memory (network byte order)
+            // On little-endian systems, reading as uint32 gives byte-swapped value
+            // Ipv4Addr::from(u32) expects native endian, so we need to swap back
             let remote_address = if ip_version == 6 {
                 IpAddr::V6(Ipv6Addr::from(remote_v6))
             } else {
-                IpAddr::V4(Ipv4Addr::from(remote_v4.to_be()))
+                // remote_v4 from WFP on LE is byte-swapped; swap to get correct IP
+                IpAddr::V4(Ipv4Addr::from(u32::from_be(remote_v4)))
             };
 
             let path_len = (app_path_len as usize).min(260);

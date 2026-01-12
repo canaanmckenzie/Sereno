@@ -178,13 +178,18 @@ struct ConnectionRow {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
-    let db = Database::open(&cli.database)?;
 
     // Default to TUI if no command given
     let command = cli.command.unwrap_or(Commands::Tui);
+
+    // Only initialize tracing for non-TUI commands (TUI uses its own display)
+    let is_tui = matches!(command, Commands::Tui);
+    if !is_tui {
+        tracing_subscriber::fmt::init();
+    }
+
+    let db = Database::open(&cli.database)?;
 
     match command {
         Commands::Tui => {

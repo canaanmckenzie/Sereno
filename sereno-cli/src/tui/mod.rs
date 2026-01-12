@@ -173,7 +173,7 @@ async fn run_async(db_path: &Path) -> Result<()> {
     }
 
     // Main event loop
-    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle).await;
+    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle, engine).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -213,6 +213,7 @@ async fn driver_poll_loop(
         // Poll for pending connection
         match handle.get_pending() {
             Ok(Some(req)) => {
+                // Connection received - process it silently (debug removed to prevent TUI interference)
                 // Try to resolve domain from IP using cache
                 let domain = if req.domain.is_some() {
                     req.domain.clone()
@@ -273,9 +274,8 @@ async fn driver_poll_loop(
                     EvalResult::Ask => DriverVerdict::Allow, // Allow now, ask about rule later
                 };
 
-                if let Err(e) = handle.set_verdict(req.request_id, driver_verdict) {
-                    eprintln!("Failed to send verdict: {}", e);
-                }
+                // Silently ignore verdict errors - don't use eprintln! as it corrupts TUI
+                let _ = handle.set_verdict(req.request_id, driver_verdict);
 
                 // Only send to UI if not a duplicate (dedup)
                 if show_in_ui {
@@ -308,14 +308,18 @@ async fn driver_poll_loop(
                         verdict,
                     }).await;
                 }
+
+                // CRITICAL: Sleep after processing each request to prevent tight loop
+                // Without this, the loop runs at full CPU speed when requests exist
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
             Ok(None) => {
-                // No pending requests, sleep briefly
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                // No pending requests, sleep longer
+                // (debug commented out to reduce noise)
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
-            Err(e) => {
-                // Error polling, sleep and retry
-                eprintln!("Driver poll error: {}", e);
+            Err(_) => {
+                // Error polling, sleep and retry (don't spam stderr)
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
@@ -328,6 +332,7 @@ async fn run_event_loop(
     app: &mut App,
     conn_rx: &mut mpsc::Receiver<DriverConnectionEvent>,
     driver_handle: Option<Arc<DriverHandle>>,
+    engine: Arc<RuleEngine>,
 ) -> Result<()> {
     loop {
         // Draw UI
@@ -360,9 +365,25 @@ async fn run_event_loop(
                                     }
                                 }
                                 EventResult::Continue => {}
-                                EventResult::ToggleRule(_rule_id) => {
-                                    // TODO: Toggle rule in database
-                                    app.log("Rule toggling not yet implemented".to_string());
+                                EventResult::ToggleRule(rule_id) => {
+                                    // Find current state of rule
+                                    let current_enabled = app.rules.iter()
+                                        .find(|r| r.id == rule_id)
+                                        .map(|r| r.enabled)
+                                        .unwrap_or(true);
+
+                                    // Toggle in database
+                                    match engine.set_rule_enabled(&rule_id, !current_enabled) {
+                                        Ok(()) => {
+                                            // Refresh rules list
+                                            app.rules = engine.rules();
+                                            let status = if !current_enabled { "enabled" } else { "disabled" };
+                                            app.log(format!("Rule {} {}", &rule_id[..8.min(rule_id.len())], status));
+                                        }
+                                        Err(e) => {
+                                            app.log(format!("Failed to toggle rule: {}", e));
+                                        }
+                                    }
                                 }
                                 EventResult::DeleteRule(_rule_id) => {
                                     // TODO: Delete rule from database

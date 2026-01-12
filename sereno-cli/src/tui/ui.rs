@@ -360,18 +360,53 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled("[I]gnore", Style::default().fg(Color::DarkGray)),
         ])
     } else {
-        // Show keyboard shortcuts
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("↑↓", Style::default().fg(Color::Cyan)),
-            Span::raw(" Navigate  "),
-            Span::styled("Tab", Style::default().fg(Color::Cyan)),
-            Span::raw(" Switch tabs  "),
-            Span::styled("Enter", Style::default().fg(Color::Cyan)),
-            Span::raw(" Select  "),
-            Span::styled("Q", Style::default().fg(Color::Cyan)),
-            Span::raw(" Quit"),
-        ])
+        // Show tab-specific keyboard shortcuts
+        match app.active_tab {
+            Tab::Monitor => Line::from(vec![
+                Span::raw(" "),
+                Span::styled("↑↓/jk", Style::default().fg(Color::Cyan)),
+                Span::raw(" Navigate  "),
+                Span::styled("C", Style::default().fg(Color::Cyan)),
+                Span::raw(" Clear  "),
+                Span::styled("Tab", Style::default().fg(Color::Cyan)),
+                Span::raw(" Switch tabs  "),
+                Span::styled("Q", Style::default().fg(Color::Cyan)),
+                Span::raw(" Quit"),
+            ]),
+            Tab::Rules => Line::from(vec![
+                Span::raw(" "),
+                Span::styled("↑↓/jk", Style::default().fg(Color::Cyan)),
+                Span::raw(" Navigate  "),
+                Span::styled("T", Style::default().fg(Color::Green)),
+                Span::raw(" Toggle  "),
+                Span::styled("D", Style::default().fg(Color::Red)),
+                Span::raw(" Delete  "),
+                Span::styled("Tab", Style::default().fg(Color::Cyan)),
+                Span::raw(" Switch tabs  "),
+                Span::styled("Q", Style::default().fg(Color::Cyan)),
+                Span::raw(" Quit"),
+            ]),
+            Tab::Logs => Line::from(vec![
+                Span::raw(" "),
+                Span::styled("C", Style::default().fg(Color::Cyan)),
+                Span::raw(" Clear logs  "),
+                Span::styled("Tab", Style::default().fg(Color::Cyan)),
+                Span::raw(" Switch tabs  "),
+                Span::styled("Q", Style::default().fg(Color::Cyan)),
+                Span::raw(" Quit"),
+            ]),
+            Tab::Settings => Line::from(vec![
+                Span::raw(" "),
+                Span::styled("D", Style::default().fg(Color::Cyan)),
+                Span::raw(" Toggle driver  "),
+                Span::styled("R", Style::default().fg(Color::Cyan)),
+                Span::raw(" Reload rules  "),
+                Span::styled("Tab", Style::default().fg(Color::Cyan)),
+                Span::raw(" Switch tabs  "),
+                Span::styled("Q", Style::default().fg(Color::Cyan)),
+                Span::raw(" Quit"),
+            ]),
+        }
     };
 
     let footer = Paragraph::new(content).block(
