@@ -20,3 +20,16 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 tabled = "0.17"
 dirs = "6"
+
+# TUI dependencies
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Driver communication (Windows)
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_Security",
+]}

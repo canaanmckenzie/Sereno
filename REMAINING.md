@@ -1376,7 +1376,73 @@ Domain-based blocking test deferred until TUI is complete. This gives us:
 
 ---
 
-**Document Version:** 2.4
+---
+
+## Session Addendum #7 - TUI Implementation Complete (2026-01-11)
+
+### What Was Built
+
+Fully functional Terminal User Interface (TUI) for Sereno:
+
+**Features:**
+- Tab navigation: `[1]` Monitor, `[2]` Rules, `[3]` Logs, `[4]` Settings
+- Live connection list with color-coded actions (green=ALLOW, red=DENY, yellow=ASK)
+- Rules management view showing all configured rules
+- Logs view for debugging
+- Settings view showing driver/mode status
+- Keyboard navigation: `↑↓` or `j/k` to select, `Tab` to switch tabs, `Q` to quit
+- Yellow highlight for pending ASK connections awaiting user decision
+- Blue highlight for selected row
+- Auto-detects driver status and displays in header
+
+**Files Created:**
+| File | Purpose |
+|------|---------|
+| `sereno-cli/src/tui/mod.rs` | TUI module entry, event loop, driver detection |
+| `sereno-cli/src/tui/app.rs` | Application state (tabs, connections, rules, selection) |
+| `sereno-cli/src/tui/ui.rs` | UI rendering with ratatui |
+| `sereno-cli/src/tui/events.rs` | Keyboard event handling |
+| `sereno-cli/src/driver.rs` | Driver communication (for future live updates) |
+| `dev.ps1` | Development helper script |
+
+**Bug Fixes:**
+- Fixed double-navigation bug by filtering `KeyEventKind::Press` only (was handling both press and release events)
+
+**Usage:**
+```powershell
+.\dev.ps1           # Build and run TUI
+.\dev.ps1 -Build    # Just rebuild
+.\dev.ps1 -Run      # Just run
+.\dev.ps1 -Driver   # Start kernel driver
+.\dev.ps1 -Stop     # Stop driver
+```
+
+Or directly:
+```powershell
+.\target\x86_64-pc-windows-msvc\release\sereno.exe      # Launch TUI
+.\target\x86_64-pc-windows-msvc\release\sereno.exe tui  # Explicit TUI command
+```
+
+### Visual Legend
+
+| Color | Meaning |
+|-------|---------|
+| Green text | ALLOW action |
+| Red text | DENY action |
+| Yellow text | ASK action (needs decision) |
+| Blue background | Selected row |
+| Yellow/olive background | Pending ASK connection awaiting user input |
+
+### Next Steps
+
+1. **Integrate live service** - Connect driver polling to TUI for real-time updates
+2. **Interactive ASK handling** - `A` to allow, `B` to block, `R` to create rule
+3. **Rule creation dialog** - Create rules directly from ASK prompts
+4. **Test domain-based blocking** - With TUI visibility into what's happening
+
+---
+
+**Document Version:** 2.5
 **Author:** Sereno Team
 **Last Updated:** 2026-01-11
-**Status:** Phase 3 Started - TUI Implementation
+**Status:** Phase 3 In Progress - TUI Shell Complete, Live Integration Pending

@@ -1,3 +1,6 @@
+mod driver;
+mod tui;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use sereno_core::{
@@ -21,18 +24,21 @@ fn default_db_path() -> PathBuf {
 
 #[derive(Parser)]
 #[command(name = "sereno")]
-#[command(about = "Sereno Network Firewall CLI", version)]
+#[command(about = "Sereno Network Firewall - Interactive TUI & CLI", version)]
 struct Cli {
     /// Database file path
     #[arg(short, long, default_value_os_t = default_db_path())]
     database: PathBuf,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Launch interactive TUI (default when no command given)
+    #[command(name = "tui")]
+    Tui,
     /// Manage firewall rules
     Rules {
         #[command(subcommand)]
@@ -177,7 +183,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let db = Database::open(&cli.database)?;
 
-    match cli.command {
+    // Default to TUI if no command given
+    let command = cli.command.unwrap_or(Commands::Tui);
+
+    match command {
+        Commands::Tui => {
+            // Launch interactive TUI
+            drop(db); // Close db before TUI takes over
+            tui::run(&cli.database)?;
+        }
         Commands::Rules { action } => handle_rules(db, action)?,
         Commands::Connections { limit } => handle_connections(db, limit)?,
         Commands::Profiles { action } => handle_profiles(db, action)?,
