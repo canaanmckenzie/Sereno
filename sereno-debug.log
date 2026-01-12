@@ -51,3 +51,115 @@
 [16:39:48] Sent Block for request 2 (DENY)
 [16:39:52] Got request 3 from curl.exe (2606:7100:1:67::26:80) pid=16612
 [16:39:52] Sent Allow for request 3 (ASK)
+[17:41:20] Got request 4 from curl.exe (2606:7100:1:67::26:80) pid=8456
+[17:41:20] Sent Allow for request 4 (ASK)
+[17:41:30] Got request 8 from pwsh.exe (36.73.179.52:443) pid=1100
+[17:41:30] Sent Allow for request 8 (ASK)
+[17:41:58] Got request 10 from node.exe (2607:6bc0::10:443) pid=12636
+[17:41:58] Sent Allow for request 10 (ASK)
+[17:41:59] Got request 11 from Code.exe (14.179.89.13:443) pid=4156
+[17:41:59] Sent Allow for request 11 (ASK)
+[17:42:03] Got request 12 from pwsh.exe (146.247.188.52:443) pid=9548
+[17:42:03] Sent Allow for request 12 (ASK)
+[17:42:14] Got request 13 from node.exe (2600:1901:0:3084:::443) pid=12636
+[17:42:14] Sent Allow for request 13 (ASK)
+[17:42:24] Got request 14 from curl.exe (2607:f8b0:4006:817::200e:80) pid=10476
+[17:42:24] Sent Block for request 14 (DENY)
+[17:42:36] Got request 15 from git-remote-https.exe (3.113.82.140:443) pid=6164
+[17:42:36] Sent Allow for request 15 (ASK)
+[17:50:46] Got request 2 from curl.exe (2606:7100:1:67::26:80) pid=5860
+[17:50:46] Sent Allow for request 2 (ASK)
+[17:51:01] Got request 3 from pwsh.exe (150.247.188.52:443) pid=1100
+[17:51:01] Sent Allow for request 3 (ASK)
+[17:51:03] Got request 4 from pwsh.exe (150.247.188.52:443) pid=9548
+[17:51:03] Sent Allow for request 4 (ASK)
+[17:51:09] Got request 5 from Code.exe (2620:1ec:27:e73d::cafe:e73d:443) pid=4156
+[17:51:09] Sent Allow for request 5 (ASK)
+[17:54:15] Got request 7 from Code.exe (13.179.89.13:443) pid=4156
+[17:54:15] Sent Allow for request 7 (ASK)
+[17:55:02] Got request 8 from node.exe (2607:6bc0::10:443) pid=12636
+[17:55:02] Sent Allow for request 8 (ASK)
+[17:55:04] Got request 9 from pwsh.exe (149.247.188.52:443) pid=9548
+[17:55:04] Sent Allow for request 9 (ASK)
+[17:56:10] Got request 10 from Code.exe (2620:1ec:bdf::40:443) pid=4156
+[17:56:10] Sent Allow for request 10 (ASK)
+[17:56:22] Got request 11 from MpDefenderCoreService.exe (2603:1063:27:1::14:443) pid=3924
+[17:56:22] Sent Allow for request 11 (ASK)
+[18:01:10] Got request 2 from Code.exe (2620:1ec:bdf::40:443) pid=4156
+[18:01:10] Sent Allow for request 2 (ASK)
+[18:01:17] Got request 4 from curl.exe (2606:7100:1:67::26:80) pid=3836
+[18:01:17] Sent Allow for request 4 (ASK)
+[18:11:09] Got request 4 from curl.exe (2606:7100:1:67::26:80) pid=12232
+[18:11:09] Sent Allow for request 4 (ASK)
+[18:11:10] Got request 5 from Code.exe (2620:1ec:46::40:443) pid=4156
+[18:11:10] Sent Allow for request 5 (ASK)
+[18:11:11] Got request 6 from Code.exe (175.117.168.52:443) pid=4156
+[18:11:11] Sent Allow for request 6 (ASK)
+[18:11:33] Got request 7 from pwsh.exe (146.247.188.52:443) pid=9804
+[18:11:33] Sent Allow for request 7 (ASK)
+[18:11:55] Got request 8 from curl.exe (2607:f8b0:4006:820::200e:80) pid=3008
+[18:11:55] Sent Block for request 8 (DENY)
+[18:12:23] Got request 12 from curl.exe (2606:7100:1:67::26:80) pid=6896
+[18:12:23] Sent Allow for request 12 (ASK)
+[18:12:35] Got request 13 from MpDefenderCoreService.exe (2603:1063:27:1::14:443) pid=3924
+[18:12:35] Sent Allow for request 13 (ASK)
+[18:18:55] Got request 2 from curl.exe (2606:7100:1:67::26:80) pid=13028
+[18:18:55] Sent Allow for request 2 (ASK)
+[18:18:57] Got request 3 from Code.exe (27.178.89.13:443) pid=4156
+[18:18:57] Sent Allow for request 3 (ASK)
+[18:19:01] Got request 4 from curl.exe (2607:f8b0:4006:804::200e:80) pid=13740
+[18:19:01] Sent Block for request 4 (DENY)
+[18:19:03] Got request 6 from pwsh.exe (146.247.188.52:443) pid=9804
+[18:19:03] Sent Allow for request 6 (ASK)
+[18:19:11] Got request 7 from curl.exe (2001:4998:44:3507::8001:80) pid=13280
+[18:19:11] Sent Allow for request 7 (ASK)
+[18:23:28] Got request 2 from curl.exe (2606:7100:1:67::26:80) pid=8284
+[18:23:28] Sent Allow for request 2 (ASK)
+[18:23:38] Got request 4 from curl.exe (2607:f8b0:4006:817::200e:80) pid=5400
+[18:23:38] Sent Block for request 4 (DENY)
+[18:23:45] Got request 5 from curl.exe (2001:4998:44:3507::8001:80) pid=4088
+[18:23:45] Sent Allow for request 5 (ASK)
+[18:28:00] Got request 2 from curl.exe (2606:7100:1:67::26:80) pid=5180
+[18:28:00] Sent Allow for request 2 (ASK)
+[18:28:04] Got request 5 from curl.exe (2607:f8b0:4006:811::200e:80) pid=4944
+[18:28:04] Sent Block for request 5 (DENY)
+[18:30:52] Got request 5 from msedge.exe (2620:1ec:bdf::40:443) pid=3084
+[18:30:52] Sent Allow for request 5 (ASK)
+[18:30:52] Got request 6 from msedge.exe (2620:1ec:33:1::11:443) pid=3084
+[18:30:52] Sent Allow for request 6 (ASK)
+[18:30:55] Got request 7 from curl.exe (2606:7100:1:67::26:80) pid=3188
+[18:30:55] Sent Allow for request 7 (ASK)
+[18:31:01] Got request 8 from curl.exe (2607:f8b0:4006:81c::200e:80) pid=11360
+[18:31:01] Sent Block for request 8 (DENY)
+[18:31:01] Got request 9 from curl.exe (110.72.250.142:80) pid=11360
+[18:31:01] Sent Allow for request 9 (ASK)
+[18:31:03] Got request 10 from pwsh.exe (149.247.188.52:443) pid=1100
+[18:31:03] Sent Allow for request 10 (ASK)
+[18:31:12] Got request 13 from Code.exe (2620:1ec:bdf::40:443) pid=4156
+[18:31:12] Sent Allow for request 13 (ASK)
+[18:33:32] Got request 2 from curl.exe (2606:7100:1:67::26:80) pid=10048
+[18:33:32] Sent Allow for request 2 (ASK)
+[18:33:36] Got request 3 from curl.exe (2607:f8b0:4006:81c::200e:80) pid=12916
+[18:33:36] Sent Block for request 3 (DENY)
+[18:33:36] Got request 4 from curl.exe (110.72.250.142:80) pid=12916
+[18:33:36] Sent Allow for request 4 (ASK)
+[18:38:38] Got request 3 from curl.exe (2606:7100:1:67::26:80) pid=4032
+[18:38:38] Sent Allow for request 3 (ASK)
+[18:38:40] Got request 4 from Code.exe (131.72.42.20:443) pid=4156
+[18:38:40] Sent Allow for request 4 (ASK)
+[18:38:46] Got request 5 from curl.exe (2607:f8b0:4006:811::200e:80) pid=1028
+[18:38:46] Sent Block for request 5 (DENY)
+[18:38:46] Got request 6 from curl.exe (142.40.251.142:80) pid=1028
+[18:38:46] Sent Allow for request 6 (ASK)
+[18:39:00] Got request 7 from curl.exe (2001:4998:124:1507::f000:80) pid=7468
+[18:39:00] Sent Allow for request 7 (ASK)
+[18:43:00] Got request 2 from curl.exe (2606:7100:1:67::26:80) pid=1908
+[18:43:00] Sent Allow for request 2 (ASK)
+[18:43:02] Got request 3 from Code.exe (170.117.168.52:443) pid=4156
+[18:43:02] Sent Allow for request 3 (ASK)
+[18:43:05] Got request 4 from curl.exe (2607:f8b0:4006:81c::200e:80) pid=7084
+[18:43:05] Sent Block for request 4 (DENY)
+[18:43:17] Got request 5 from curl.exe (2001:4998:124:1507::f000:80) pid=5504
+[18:43:17] Sent Allow for request 5 (ASK)
+[18:43:34] Got request 6 from curl.exe (2607:f8b0:4006:80d::200e:80) pid=12148
+[18:43:34] Sent Allow for request 6 (ASK)

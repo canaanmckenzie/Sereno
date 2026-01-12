@@ -155,13 +155,13 @@ typedef struct _DNS_CACHE_ENTRY {
 } DNS_CACHE_ENTRY, *PDNS_CACHE_ENTRY;
 
 // Verdict cache entry - for re-authorization after FwpsCompleteOperation0
-// Key: (ProcessId, RemoteIP, RemotePort) -> Verdict
+// Key: (ProcessId, RemotePort) -> Verdict
+// NOTE: IP address is intentionally NOT part of the key. This ensures that
+// if a user blocks "curl -> port 80", ALL destination IPs are blocked
+// (important because domains like example.com resolve to multiple IPs).
 typedef struct _VERDICT_CACHE_ENTRY {
     UINT64          Timestamp;
     UINT32          ProcessId;
-    BOOLEAN         IsIPv6;
-    UINT32          RemoteIpV4;
-    UINT8           RemoteIpV6[16];
     UINT16          RemotePort;
     SERENO_VERDICT  Verdict;
     BOOLEAN         InUse;
