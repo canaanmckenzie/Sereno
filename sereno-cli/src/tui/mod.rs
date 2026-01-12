@@ -20,15 +20,76 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use sereno_core::{
     database::Database,
     rule_engine::RuleEngine,
-    types::{ConnectionContext, EvalResult},
+    types::{Condition, ConnectionContext, DomainPattern, EvalResult, Rule},
 };
 use std::{
+    collections::{HashMap, HashSet},
     io::{self, stdout},
+    net::{IpAddr, ToSocketAddrs},
     path::Path,
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
+
+/// Domain cache for IP → domain lookups (enables domain-based rules)
+struct DomainCache {
+    ip_to_domains: HashMap<IpAddr, HashSet<String>>,
+}
+
+impl DomainCache {
+    fn new() -> Self {
+        Self {
+            ip_to_domains: HashMap::new(),
+        }
+    }
+
+    /// Add a domain → IP mapping (bidirectional)
+    fn add(&mut self, domain: &str, ip: IpAddr) {
+        self.ip_to_domains
+            .entry(ip)
+            .or_insert_with(HashSet::new)
+            .insert(domain.to_lowercase());
+    }
+
+    /// Get domains for an IP
+    fn get_domains(&self, ip: &IpAddr) -> Option<String> {
+        self.ip_to_domains
+            .get(ip)
+            .and_then(|set| set.iter().next().cloned())
+    }
+}
+
+/// Extract domains from rules and resolve them to IPs
+fn preload_domains_from_rules(rules: &[Rule]) -> DomainCache {
+    let mut cache = DomainCache::new();
+
+    for rule in rules {
+        for condition in &rule.conditions {
+            if let Condition::Domain { patterns } = condition {
+                for pattern in patterns {
+                    let domain = match pattern {
+                        DomainPattern::Exact { value } => value.clone(),
+                        DomainPattern::Wildcard { pattern } => {
+                            // For wildcards like *.google.com, try resolving google.com
+                            pattern.trim_start_matches("*.").to_string()
+                        }
+                        DomainPattern::Regex { .. } => continue, // Can't resolve regex
+                    };
+
+                    // Try to resolve domain to IPs
+                    if let Ok(addrs) = format!("{}:80", domain).to_socket_addrs() {
+                        for addr in addrs {
+                            cache.add(&domain, addr.ip());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    cache
+}
 
 /// Run the TUI application (blocking wrapper for async)
 pub fn run(db_path: &Path) -> Result<()> {
@@ -55,6 +116,12 @@ async fn run_async(db_path: &Path) -> Result<()> {
     let engine = Arc::new(RuleEngine::new(db.clone())?);
     app.rules = engine.rules();
     app.log(format!("Loaded {} rules", app.rules.len()));
+
+    // Preload domains from rules for IP → domain lookup
+    let preloaded_cache = preload_domains_from_rules(&app.rules);
+    let ip_count = preloaded_cache.ip_to_domains.len();
+    let domain_cache = Arc::new(RwLock::new(preloaded_cache));
+    app.log(format!("Resolved {} IPs from domain rules", ip_count));
 
     // Check driver status and try to connect
     app.driver_status = check_driver_status();
@@ -97,10 +164,11 @@ async fn run_async(db_path: &Path) -> Result<()> {
     if let Some(ref handle) = driver_handle {
         let handle_clone = handle.clone();
         let engine_clone = engine.clone();
+        let domain_cache_clone = domain_cache.clone();
         let tx = conn_tx.clone();
 
         tokio::spawn(async move {
-            driver_poll_loop(handle_clone, engine_clone, tx).await;
+            driver_poll_loop(handle_clone, engine_clone, domain_cache_clone, tx).await;
         });
     }
 
@@ -126,6 +194,7 @@ struct DriverConnectionEvent {
 async fn driver_poll_loop(
     handle: Arc<DriverHandle>,
     engine: Arc<RuleEngine>,
+    domain_cache: Arc<RwLock<DomainCache>>,
     tx: mpsc::Sender<DriverConnectionEvent>,
 ) {
     use std::collections::HashMap;
@@ -144,6 +213,14 @@ async fn driver_poll_loop(
         // Poll for pending connection
         match handle.get_pending() {
             Ok(Some(req)) => {
+                // Try to resolve domain from IP using cache
+                let domain = if req.domain.is_some() {
+                    req.domain.clone()
+                } else {
+                    // Look up in domain cache
+                    domain_cache.read().await.get_domains(&req.remote_address)
+                };
+
                 // Build context for rule evaluation
                 let ctx = ConnectionContext {
                     process_path: req.process_path.to_string_lossy().to_string(),
@@ -154,7 +231,7 @@ async fn driver_poll_loop(
                     local_port: req.local_port,
                     protocol: req.protocol,
                     direction: req.direction,
-                    domain: req.domain.clone(),
+                    domain: domain.clone(),
                 };
 
                 // Check cache for recent identical connection
@@ -207,7 +284,7 @@ async fn driver_poll_loop(
                         action: action_str.to_string(),
                         process_name: req.process_name,
                         process_id: req.process_id,
-                        destination: req.domain.unwrap_or_else(|| req.remote_address.to_string()),
+                        destination: domain.clone().unwrap_or_else(|| req.remote_address.to_string()),
                         port: req.remote_port,
                         protocol: format!("{:?}", req.protocol),
                         rule_name: match &verdict {
@@ -283,6 +360,14 @@ async fn run_event_loop(
                                     }
                                 }
                                 EventResult::Continue => {}
+                                EventResult::ToggleRule(_rule_id) => {
+                                    // TODO: Toggle rule in database
+                                    app.log("Rule toggling not yet implemented".to_string());
+                                }
+                                EventResult::DeleteRule(_rule_id) => {
+                                    // TODO: Delete rule from database
+                                    app.log("Rule deletion not yet implemented".to_string());
+                                }
                             }
                         }
                         Event::Resize(_, _) => {

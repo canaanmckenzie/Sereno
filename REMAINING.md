@@ -1514,7 +1514,84 @@ Run TUI interactively to verify live connections appear in real-time.
 
 ---
 
-**Document Version:** 2.6
+## Session Addendum #9 - TUI Complete & Domain Blocking Working (2026-01-11)
+
+### What Was Accomplished
+
+1. **Live Driver Integration** - TUI now polls driver in real-time, shows connections as they happen
+2. **ASK Handling** - Auto-allows (no blocking), 30-second dedup cache prevents UI flooding
+3. **Domain-Based Blocking** - Rules with domain conditions now work
+
+### Domain Blocking Implementation
+
+**How it works:**
+1. At startup, extract domain patterns from rules
+2. Resolve domains to IPs using `std::net::ToSocketAddrs`
+3. Store IP→domain mappings in cache
+4. When connection arrives, look up IP to find domain
+5. Set `ctx.domain` for rule evaluation
+6. Domain rules now match correctly
+
+**Key code in `sereno-cli/src/tui/mod.rs`:**
+```rust
+// Preload domains from rules
+fn preload_domains_from_rules(rules: &[Rule]) -> DomainCache {
+    // Extract domain patterns, resolve to IPs, build bidirectional cache
+}
+
+// In driver poll loop:
+let domain = domain_cache.read().await.get_domains(&req.remote_address);
+let ctx = ConnectionContext { domain, ... };
+let verdict = engine.evaluate(&ctx);
+```
+
+**Verified working:**
+- "Block Google" rule shows DENY in TUI for google.com
+- Block verdicts ARE being sent to driver (confirmed via debug logging)
+- Driver DOES block connections for cached IPs
+
+**Current limitation:**
+- DNS resolution only happens at startup
+- Large sites (google, etc) have many IPs across CDNs
+- curl may succeed by falling back to un-cached IPs
+- Fix: Real-time DNS interception (future work)
+
+### Bug Fixes This Session
+
+1. **Navigation broken** - `pending_ask` was intercepting all keys; removed since ASK auto-allows
+2. **Runtime panic** - `blocking_read()` can't be used in async context; fixed by getting count before Arc wrap
+3. **Field name mismatch** - `DomainPattern::Exact` uses `value` not `domain`
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `sereno-cli/src/tui/mod.rs` | Domain cache, preloading, IP→domain lookup |
+| `sereno-cli/src/tui/events.rs` | Added ToggleRule/DeleteRule variants (not yet wired) |
+| `sereno-cli/src/tui/app.rs` | Added `request_id` field to ConnectionEvent |
+| `sereno-cli/src/tui/ui.rs` | Fixed System[4] display, ICMP display |
+
+### TUI Keyboard Shortcuts
+
+| Key | Tab | Action |
+|-----|-----|--------|
+| 1-4 | Any | Switch to tab |
+| Tab | Any | Next tab |
+| ↑↓/jk | Monitor | Navigate connections |
+| ↑↓/jk | Rules | Navigate rules |
+| Q | Any | Quit |
+| C | Monitor | Clear connections |
+| T | Rules | Toggle rule (placeholder) |
+
+### Next Steps
+
+1. **DNS Interception** - Capture DNS queries in real-time for complete domain blocking
+2. **Rule Toggling** - Wire up T key in Rules tab to actually toggle rules
+3. **Rule Creation** - Create rules from selected connections
+
+---
+
+**Document Version:** 2.7
 **Author:** Sereno Team
 **Last Updated:** 2026-01-11
-**Status:** Phase 3 In Progress - Live Driver Integration Complete, Testing Pending
+**Status:** Phase 3 In Progress - TUI functional, domain blocking working with caveats

@@ -14,6 +14,10 @@ pub enum EventResult {
     AllowPending(u64),
     /// User decided to block a pending connection
     BlockPending(u64),
+    /// Toggle a rule's enabled state
+    ToggleRule(String),
+    /// Delete a rule
+    DeleteRule(String),
 }
 
 /// Poll for and handle events
