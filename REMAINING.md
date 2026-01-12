@@ -158,7 +158,7 @@ Per `SERENO_BUILD_GUIDE.md`, the project has 6 phases:
 | World map visualization | ❌ Not started | GeoIP + WebGL |
 | Profile management | ❌ Not started | Multiple rule sets |
 | Code signature verification | ❌ Not started | Authenticode checking |
-| IPv6 support | ⚠️ Skeleton | Driver permits all IPv6, no filtering |
+| IPv6 support | ✅ Done | Full IPv6 interception and filtering |
 | Inbound connection monitoring | ❌ Not started | Only outbound currently |
 | Bandwidth statistics | ❌ Not started | Per-connection byte counters |
 
@@ -1184,19 +1184,91 @@ sc.exe start SerenoFilter
 
 ---
 
-## Current State Summary (Checkpoint: 2026-01-11 7:15 PM)
+## Session Addendum #5 - Domain-Based Blocking Infrastructure (2026-01-11)
+
+### Overview
+
+Implemented forward DNS caching and domain-based rule matching. This enables rules like "Block *.telemetry.microsoft.com" to work by:
+1. Pre-resolving domain patterns when rules are loaded
+2. Caching domain→IP mappings bidirectionally
+3. Looking up domains from IPs during connection evaluation
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `sereno-service/src/dns_intercept.rs` | Domain monitoring, rule extraction, pre-resolution |
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| `sereno-service/src/dns.rs` | Added `ForwardDnsCache` with bidirectional mapping, `resolve_domain()`, `get_domains_for_ip()`, `ip_matches_domain()` |
+| `sereno-service/src/main.rs` | Integrated forward cache lookup for domain resolution, calls `preload_domains_from_rules()` at startup |
+| `sereno-service/Cargo.toml` | Added ETW feature for future DNS interception |
+
+### How It Works
+
+1. **At Startup**: Service loads rules, extracts domain patterns, and pre-resolves them via DNS
+2. **DNS Cache**: Bidirectional mapping stored:
+   - domain → IPs (for forward lookup)
+   - IP → domains (for reverse lookup during rule evaluation)
+3. **Connection Evaluation**: When a connection comes in with just an IP:
+   - Check forward cache for domains that resolve to this IP
+   - Set `ctx.domain` if found
+   - Rule engine evaluates domain conditions
+
+### Domain Pattern Support
+
+- **Exact**: `example.com` - matches only `example.com`
+- **Wildcard**: `*.google.com` - matches `www.google.com`, `api.google.com`, etc.
+- **Regex**: `^.+\.telemetry\..+$` - regex pattern matching
+
+### Testing Domain Rules
+
+```powershell
+# Initialize with factory rules (includes domain-based rules)
+.\target\release\sereno-cli.exe init
+
+# Add a custom domain rule
+.\target\release\sereno-cli.exe rules add --name "Block Facebook" --action deny --domain "*.facebook.com"
+
+# Simulate a connection with domain
+.\target\release\sereno-cli.exe simulate --process "C:\test.exe" --ip 157.240.1.35 --port 443 --domain "www.facebook.com"
+```
+
+### Factory Rules Include Domain Patterns
+
+- **Allow Windows Update**: `*.windowsupdate.com`, `*.microsoft.com` (with svchost.exe)
+- **Block Telemetry**: `*.data.microsoft.com`, `telemetry.*`, `*.telemetry.*`
+
+### Future Enhancement: ETW DNS Interception
+
+The `dns_intercept` module has a skeleton for ETW-based DNS interception using the Microsoft-Windows-DNS-Client provider. This would enable real-time capture of DNS queries without pre-resolution, but requires:
+- Admin privileges
+- Complex ETW setup with ProcessTrace()
+- TDH event parsing
+
+For now, the pre-resolution approach works well for static domain rules.
+
+---
+
+## Current State Summary (Checkpoint: 2026-01-11)
 
 ### What's Working
 
 - [x] Driver builds and signs correctly
 - [x] IPv4 connection interception and logging
-- [x] IPv6 connection interception and logging (NEW)
+- [x] IPv6 connection interception and logging
 - [x] Process path extraction
 - [x] Verdict cache in service (30-second TTL)
 - [x] In-place cache hit display (`[×N cached]`)
 - [x] Fail-open on timeout (prevents retry storms)
 - [x] Safety bypasses (DNS, DHCP, loopback, multicast)
 - [x] Circuit breaker (auto-permit after 10 timeouts)
+- [x] Forward DNS cache for domain-based rules (NEW)
+- [x] Domain pattern pre-resolution at startup (NEW)
+- [x] Bidirectional domain↔IP lookup (NEW)
 
 ### Current Test Certificate
 
@@ -1206,18 +1278,105 @@ Thumbprint: 1DC360B0502EDDBF7424ADF0D18EEDB70904523F
 Store: Cert:\CurrentUser\My
 ```
 
-### Files Modified This Session
+### Next Steps
 
-| File | Changes |
-|------|---------|
-| `sereno-driver/src/driver.c` | Added IPv6 support, updated address variables, IPv6 bypasses |
-| `sereno-service/src/main.rs` | In-place cache updates, new CacheEntry structure |
-| `.gitignore` | Added `nul` and temp file patterns |
-| `REMAINING.md` | This checkpoint + driver signing docs |
+1. **SNI Extraction**: For HTTPS connections, extract Server Name Indication from TLS handshake
+2. **ETW DNS Interception**: Real-time DNS query capture (optional enhancement)
+3. **UI Integration**: Connect domain rules to GUI
 
 ---
 
-**Document Version:** 2.2
+---
+
+## Session Addendum #6 - TUI Implementation Plan (2026-01-11)
+
+### The Problem
+
+Current UX is unwieldy:
+- Must manually run `sc.exe start SerenoFilter` for driver
+- Must run `sereno-service.exe` separately
+- CLI is a third separate command (`sereno.exe rules ...`)
+- No way to interactively handle ASK prompts
+- Output is hard to read in raw terminal
+
+### The Solution: Unified TUI
+
+Single command `sereno` that:
+1. Auto-starts driver if running as admin
+2. Runs the service internally
+3. Provides interactive monitoring and rule management
+4. Handles ASK prompts with keyboard shortcuts
+
+### TUI Layout Design
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ SERENO FIREWALL                    Driver: ● Running   Mode: Kernel │
+├─────────────────────────────────────────────────────────────────────┤
+│ [1] Monitor  [2] Rules  [3] Logs  [4] Settings            [Q] Quit  │
+├─────────────────────────────────────────────────────────────────────┤
+│ LIVE CONNECTIONS                                          5 rules   │
+├─────────────────────────────────────────────────────────────────────┤
+│ TIME     ACTION  PROCESS          DESTINATION              PORT     │
+│ 19:45:17 ALLOW   curl.exe         google.com               443      │
+│ 19:45:14 ASK     Code.exe         github.com               443      │
+│ 19:44:57 DENY    telemetry.exe    telemetry.microsoft.com  443      │
+│ 19:44:57 ALLOW   node.exe         localhost                50073    │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│ ⚠ PENDING: Code.exe → github.com:443  [A]llow [B]lock [R]ule [I]gnore│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Technology Stack
+
+- **ratatui** - TUI rendering (fork of tui-rs, actively maintained)
+- **crossterm** - Cross-platform terminal input/output
+- Merge service logic into main CLI binary
+
+### Implementation Phases
+
+1. **Phase 1: Basic TUI Shell**
+   - Tab navigation (Monitor/Rules/Logs/Settings)
+   - Status bar with driver state
+   - Basic connection list view
+
+2. **Phase 2: Live Connection Monitor**
+   - Integrate service event loop
+   - Real-time connection updates
+   - Scrollable connection history
+
+3. **Phase 3: Interactive Prompts**
+   - ASK verdict handling
+   - Keyboard shortcuts for allow/block/rule
+   - Quick rule creation from ASK prompts
+
+4. **Phase 4: Rules Management**
+   - List/add/edit/delete rules in TUI
+   - Rule toggle (enable/disable)
+   - Rule priority adjustment
+
+### Files to Create/Modify
+
+| File | Purpose |
+|------|---------|
+| `sereno-cli/src/tui/mod.rs` | TUI module root |
+| `sereno-cli/src/tui/app.rs` | Application state |
+| `sereno-cli/src/tui/ui.rs` | UI rendering |
+| `sereno-cli/src/tui/events.rs` | Keyboard/event handling |
+| `sereno-cli/src/tui/tabs/*.rs` | Individual tab views |
+| `sereno-cli/Cargo.toml` | Add ratatui, crossterm deps |
+
+### Blocking Test Deferred
+
+Domain-based blocking test deferred until TUI is complete. This gives us:
+- Unified interface to observe blocking behavior
+- Interactive ASK handling for testing rules
+- Better debugging visibility
+
+---
+
+**Document Version:** 2.4
 **Author:** Sereno Team
-**Last Updated:** 2026-01-11 7:15 PM
-**Status:** Phase 2 Complete - Driver has IPv6 support, ready for testing
+**Last Updated:** 2026-01-11
+**Status:** Phase 3 Started - TUI Implementation
