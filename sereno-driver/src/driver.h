@@ -22,6 +22,8 @@
 #include <fwpsk.h>
 #include <fwpmk.h>
 #include <guiddef.h>
+#include <ntstrsafe.h>
+#include <stdarg.h>
 
 #pragma warning(pop)
 
@@ -321,6 +323,7 @@ BOOLEAN SerenoDnsCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN I
 // Verdict cache management (for async pending re-authorization)
 VOID SerenoVerdictCacheAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ UINT32 ProcessId, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _In_ SERENO_VERDICT Verdict);
 BOOLEAN SerenoVerdictCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ UINT32 ProcessId, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _Out_ SERENO_VERDICT* Verdict);
+BOOLEAN SerenoVerdictCacheLookupByAddress(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _Out_ SERENO_VERDICT* Verdict);
 
 // DNS packet classify function
 VOID NTAPI SerenoClassifyDns(

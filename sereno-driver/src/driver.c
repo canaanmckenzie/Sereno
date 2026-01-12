@@ -20,8 +20,110 @@ DECLARE_CONST_UNICODE_STRING(SERENO_DEVICE_SDDL, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)")
 static PSERENO_DEVICE_CONTEXT g_DeviceContext = NULL;
 static WDFDEVICE g_ControlDevice = NULL;
 
-// Forward declaration
+// Debug log file handle
+static HANDLE g_LogFileHandle = NULL;
+static FAST_MUTEX g_LogFileMutex;
+
+// Forward declarations
 EVT_WDF_DRIVER_UNLOAD SerenoEvtDriverUnload;
+
+/*
+ * SerenoLogInit - Initialize debug log file
+ */
+VOID SerenoLogInit(VOID)
+{
+    UNICODE_STRING logPath;
+    OBJECT_ATTRIBUTES objAttr;
+    IO_STATUS_BLOCK ioStatus;
+    NTSTATUS status;
+
+    ExInitializeFastMutex(&g_LogFileMutex);
+
+    RtlInitUnicodeString(&logPath, L"\\??\\C:\\sereno-driver-debug.log");
+    InitializeObjectAttributes(&objAttr, &logPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+    status = ZwCreateFile(
+        &g_LogFileHandle,
+        FILE_APPEND_DATA | SYNCHRONIZE,
+        &objAttr,
+        &ioStatus,
+        NULL,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OVERWRITE_IF,
+        FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+        NULL,
+        0);
+
+    if (!NT_SUCCESS(status)) {
+        g_LogFileHandle = NULL;
+        KdPrint(("Sereno: Failed to create log file: 0x%08X\n", status));
+    }
+}
+
+/*
+ * SerenoLogClose - Close debug log file
+ */
+VOID SerenoLogClose(VOID)
+{
+    if (g_LogFileHandle) {
+        ZwClose(g_LogFileHandle);
+        g_LogFileHandle = NULL;
+    }
+}
+
+/*
+ * SerenoLog - Write to debug log file
+ */
+VOID SerenoLog(_In_ const char* Format, ...)
+{
+    char buffer[512];
+    char* bufPtr;
+    va_list args;
+    IO_STATUS_BLOCK ioStatus;
+    size_t remaining;
+    LARGE_INTEGER time;
+    TIME_FIELDS timeFields;
+    NTSTATUS status;
+
+    if (!g_LogFileHandle) return;
+
+    // Get current time
+    KeQuerySystemTime(&time);
+    ExSystemTimeToLocalTime(&time, &time);
+    RtlTimeToTimeFields(&time, &timeFields);
+
+    // Format timestamp using kernel-safe string functions
+    status = RtlStringCbPrintfA(buffer, sizeof(buffer), "[%02d:%02d:%02d.%03d] ",
+        timeFields.Hour, timeFields.Minute, timeFields.Second, timeFields.Milliseconds);
+    if (!NT_SUCCESS(status)) return;
+
+    // Find end of timestamp
+    status = RtlStringCbLengthA(buffer, sizeof(buffer), &remaining);
+    if (!NT_SUCCESS(status)) return;
+    bufPtr = buffer + remaining;
+    remaining = sizeof(buffer) - remaining;
+
+    // Format message
+    va_start(args, Format);
+    status = RtlStringCbVPrintfA(bufPtr, remaining, Format, args);
+    va_end(args);
+    if (!NT_SUCCESS(status)) return;
+
+    // Get final length and add newline
+    status = RtlStringCbLengthA(buffer, sizeof(buffer), &remaining);
+    if (!NT_SUCCESS(status)) return;
+
+    if (remaining > 0 && remaining < sizeof(buffer) - 1 && buffer[remaining-1] != '\n') {
+        buffer[remaining++] = '\n';
+        buffer[remaining] = '\0';
+    }
+
+    // Write to file (with mutex for thread safety)
+    ExAcquireFastMutex(&g_LogFileMutex);
+    ZwWriteFile(g_LogFileHandle, NULL, NULL, NULL, &ioStatus, buffer, (ULONG)remaining, NULL, NULL);
+    ExReleaseFastMutex(&g_LogFileMutex);
+}
 
 /*
  * DriverEntry - Driver initialization
@@ -47,6 +149,11 @@ DriverEntry(
     DECLARE_CONST_UNICODE_STRING(symlinkName, SERENO_SYMLINK_NAME);
 
     KdPrint(("Sereno: DriverEntry\n"));
+
+    // NOTE: File logging disabled - ZwCreateFile during DriverEntry can hang
+    // Use DebugView with Capture Kernel to see KdPrint output instead
+    // SerenoLogInit();
+    // SerenoLog("DriverEntry starting");
 
     // Initialize driver config - no DeviceAdd callback for non-PnP driver
     WDF_DRIVER_CONFIG_INIT(&config, WDF_NO_EVENT_CALLBACK);
@@ -160,6 +267,7 @@ SerenoEvtDriverUnload(
 )
 {
     UNREFERENCED_PARAMETER(Driver);
+    // SerenoLog("Driver unloading");  // Disabled - file logging not initialized
     KdPrint(("Sereno: Driver unloading\n"));
 
     // Cleanup is handled by device context cleanup callback
@@ -167,6 +275,8 @@ SerenoEvtDriverUnload(
         WdfObjectDelete(g_ControlDevice);
         g_ControlDevice = NULL;
     }
+
+    // SerenoLogClose();  // Disabled - file logging not initialized
 }
 
 /*
@@ -306,6 +416,9 @@ SerenoEvtIoDeviceControl(
         }
 
         verdictResponse = (PSERENO_VERDICT_RESPONSE)inputBuffer;
+
+        SerenoLog("IOCTL SET_VERDICT reqId=%llu verdict=%u",
+                 verdictResponse->RequestId, verdictResponse->Verdict);
 
         SerenoCompletePendingRequest(
             deviceContext,
@@ -813,6 +926,58 @@ SerenoClassifyConnect(
         return;
     }
 
+    // 7. Check verdict cache - if we already decided on this connection, reuse verdict
+    // This prevents duplicate pending requests for TCP SYN retries
+    // Also handles re-auth (where ProcessId may be 0)
+    {
+        SERENO_VERDICT cachedVerdict;
+        UINT32 lookupPid = (UINT32)(ULONG_PTR)processId;
+
+        // Try with actual ProcessId first
+        if (SerenoVerdictCacheLookup(
+                deviceContext,
+                lookupPid,
+                isIPv6,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                remotePort,
+                &cachedVerdict)) {
+            // Found cached verdict - use it immediately without pending
+            SerenoLog("Cache HIT pid=%u port=%u verdict=%d", lookupPid, remotePort, cachedVerdict);
+            if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+                ClassifyOut->actionType = FWP_ACTION_BLOCK;
+                InterlockedIncrement64((LONG64*)&deviceContext->Stats.BlockedConnections);
+            } else {
+                ClassifyOut->actionType = FWP_ACTION_PERMIT;
+                InterlockedIncrement64((LONG64*)&deviceContext->Stats.AllowedConnections);
+            }
+            return;
+        }
+
+        // Re-auth may have ProcessId=0, try wildcard lookup (pid=0 matches any)
+        // This is safe because we're matching on (IP, port) which is unique per connection
+        if (lookupPid == 0) {
+            if (SerenoVerdictCacheLookupByAddress(
+                    deviceContext,
+                    isIPv6,
+                    remoteAddrV4,
+                    isIPv6 ? remoteAddrV6 : NULL,
+                    remotePort,
+                    &cachedVerdict)) {
+                SerenoLog("Cache HIT (re-auth, pid=0) port=%u verdict=%d", remotePort, cachedVerdict);
+                if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+                    ClassifyOut->actionType = FWP_ACTION_BLOCK;
+                    InterlockedIncrement64((LONG64*)&deviceContext->Stats.BlockedConnections);
+                } else {
+                    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+                    InterlockedIncrement64((LONG64*)&deviceContext->Stats.AllowedConnections);
+                }
+                return;
+            }
+            SerenoLog("Cache MISS (re-auth, pid=0) port=%u", remotePort);
+        }
+    }
+
     // Update stats
     InterlockedIncrement64((LONG64*)&deviceContext->Stats.TotalConnections);
 
@@ -826,12 +991,14 @@ SerenoClassifyConnect(
         return;
     }
 
-    // FIX #2: Check for completion handle BEFORE allocating anything
-    // No completion handle = re-authorization (shouldn't happen after Fix #1)
-    // With Fix #1, we pass verdict directly to FwpsCompleteOperation0, so no re-auth occurs.
-    // This check is kept as a safety net - if somehow re-auth happens, just permit.
+    // Check for completion handle - no handle means re-authorization
+    // Re-auth normally uses the verdict cache (checked above at step 7).
+    // If we reach here with no completion handle, the cache lookup failed
+    // (cache expired or full). Permit as safe fallback.
     if (!(InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_COMPLETION_HANDLE)) {
-        // Re-auth path - should never happen with Fix #1, but permit if it does
+        // Re-auth with no cached verdict - permit to avoid blocking
+        SerenoLog("RE-AUTH FALLBACK permit (no cache) pid=%u port=%u",
+                 (UINT32)(ULONG_PTR)processId, remotePort);
         ClassifyOut->actionType = FWP_ACTION_PERMIT;
         return;
     }
@@ -915,6 +1082,12 @@ SerenoClassifyConnect(
     }
 
     pendingRequest->Completed = FALSE;
+
+    // Log new pending connection
+    SerenoLog("PEND NEW pid=%u port=%u reqId=%llu",
+              pendingRequest->ConnectionInfo.ProcessId,
+              pendingRequest->ConnectionInfo.RemotePort,
+              pendingRequest->RequestId);
 
     // Add to pending list for user-mode to process
     KeAcquireSpinLock(&deviceContext->PendingLock, &oldIrql);
@@ -1048,6 +1221,12 @@ SerenoCompletePendingRequest(
         // CRITICAL: Add verdict to cache BEFORE calling FwpsCompleteOperation0
         // FwpsCompleteOperation0(NULL) triggers immediate re-authorization
         // which will call SerenoClassifyConnect again to check this cache
+        SerenoLog("CacheAdd pid=%u port=%u verdict=%d (reqId=%llu)",
+                 request->ConnectionInfo.ProcessId,
+                 request->ConnectionInfo.RemotePort,
+                 Verdict,
+                 RequestId);
+
         SerenoVerdictCacheAdd(
             Context,
             request->ConnectionInfo.ProcessId,
@@ -1067,6 +1246,7 @@ SerenoCompletePendingRequest(
 
         // Complete the pended operation - triggers re-authorization
         // Re-auth will find our verdict in the cache (added above)
+        SerenoLog("Calling FwpsCompleteOperation0 (reqId=%llu)", RequestId);
         FwpsCompleteOperation0(completionContext, NULL);
 
         SerenoFreePendingRequest(request);
@@ -1194,6 +1374,61 @@ SerenoVerdictCacheLookup(
                 *Verdict = Context->VerdictCache[i].Verdict;
                 // DON'T clear entry - allow multiple re-auths to use same verdict
                 // Entry will be cleared by TTL expiration
+                found = TRUE;
+                break;
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&Context->VerdictCacheLock, oldIrql);
+    return found;
+}
+
+/*
+ * SerenoVerdictCacheLookupByAddress - Lookup by IP+port only (for re-auth with pid=0)
+ * This is used when re-authorization doesn't have process context
+ */
+BOOLEAN
+SerenoVerdictCacheLookupByAddress(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 RemoteIpV4,
+    _In_opt_ const UINT8* RemoteIpV6,
+    _In_ UINT16 RemotePort,
+    _Out_ SERENO_VERDICT* Verdict
+)
+{
+    KIRQL oldIrql;
+    UINT64 now = KeQueryInterruptTime();
+    UINT32 i;
+    BOOLEAN found = FALSE;
+
+    KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
+
+    for (i = 0; i < MAX_VERDICT_CACHE_ENTRIES; i++) {
+        if (!Context->VerdictCache[i].InUse) {
+            continue;
+        }
+
+        // Check TTL
+        if ((now - Context->VerdictCache[i].Timestamp) > VERDICT_CACHE_TTL_100NS) {
+            Context->VerdictCache[i].InUse = FALSE;
+            continue;
+        }
+
+        // Match by IP + port only (ignoring ProcessId)
+        if (Context->VerdictCache[i].RemotePort != RemotePort) continue;
+        if (Context->VerdictCache[i].IsIPv6 != IsIPv6) continue;
+
+        if (IsIPv6) {
+            if (RemoteIpV6 && RtlCompareMemory(Context->VerdictCache[i].RemoteIpV6, RemoteIpV6, 16) == 16) {
+                *Verdict = Context->VerdictCache[i].Verdict;
+                found = TRUE;
+                break;
+            }
+        } else {
+            if (Context->VerdictCache[i].RemoteIpV4 == RemoteIpV4) {
+                *Verdict = Context->VerdictCache[i].Verdict;
                 found = TRUE;
                 break;
             }

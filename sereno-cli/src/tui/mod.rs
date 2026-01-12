@@ -27,7 +27,10 @@ use std::{
     io::{self, stdout},
     net::{IpAddr, ToSocketAddrs},
     path::Path,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc, RwLock};
@@ -160,20 +163,24 @@ async fn run_async(db_path: &Path) -> Result<()> {
         None
     };
 
+    // Flag to signal verdict cache clear (set when rules change)
+    let clear_cache_flag = Arc::new(AtomicBool::new(false));
+
     // Spawn driver polling task
     if let Some(ref handle) = driver_handle {
         let handle_clone = handle.clone();
         let engine_clone = engine.clone();
         let domain_cache_clone = domain_cache.clone();
         let tx = conn_tx.clone();
+        let clear_flag = clear_cache_flag.clone();
 
         tokio::spawn(async move {
-            driver_poll_loop(handle_clone, engine_clone, domain_cache_clone, tx).await;
+            driver_poll_loop(handle_clone, engine_clone, domain_cache_clone, tx, clear_flag).await;
         });
     }
 
     // Main event loop
-    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle, engine).await;
+    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle, engine, clear_cache_flag).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -196,6 +203,7 @@ async fn driver_poll_loop(
     engine: Arc<RuleEngine>,
     domain_cache: Arc<RwLock<DomainCache>>,
     tx: mpsc::Sender<DriverConnectionEvent>,
+    clear_cache_flag: Arc<AtomicBool>,
 ) {
     use std::collections::HashMap;
     use std::time::Instant;
@@ -207,13 +215,28 @@ async fn driver_poll_loop(
     const CACHE_TTL_SECS: u64 = 30;
 
     loop {
+        // Check if rules changed - clear cache if so
+        if clear_cache_flag.swap(false, Ordering::Relaxed) {
+            verdict_cache.clear();
+        }
+
         // Clean old cache entries periodically
         verdict_cache.retain(|_, (_, ts)| ts.elapsed().as_secs() < CACHE_TTL_SECS * 2);
 
         // Poll for pending connection
         match handle.get_pending() {
             Ok(Some(req)) => {
-                // Connection received - process it silently (debug removed to prevent TUI interference)
+                // Connection received - log to debug file
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("sereno-debug.log")
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(f, "[{}] Got request {} from {} ({}:{}) pid={}",
+                            chrono::Local::now().format("%H:%M:%S"),
+                            req.request_id, req.process_name, req.remote_address, req.remote_port, req.process_id)
+                    });
                 // Try to resolve domain from IP using cache
                 let domain = if req.domain.is_some() {
                     req.domain.clone()
@@ -274,8 +297,23 @@ async fn driver_poll_loop(
                     EvalResult::Ask => DriverVerdict::Allow, // Allow now, ask about rule later
                 };
 
-                // Silently ignore verdict errors - don't use eprintln! as it corrupts TUI
-                let _ = handle.set_verdict(req.request_id, driver_verdict);
+                // Send verdict to driver - log to file (can't print to TUI)
+                let verdict_result = handle.set_verdict(req.request_id, driver_verdict);
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("sereno-debug.log")
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        match &verdict_result {
+                            Ok(()) => writeln!(f, "[{}] Sent {:?} for request {} ({})",
+                                chrono::Local::now().format("%H:%M:%S"),
+                                driver_verdict, req.request_id, action_str),
+                            Err(e) => writeln!(f, "[{}] FAILED set_verdict for request {}: {} (verdict: {:?})",
+                                chrono::Local::now().format("%H:%M:%S"),
+                                req.request_id, e, driver_verdict),
+                        }
+                    });
 
                 // Only send to UI if not a duplicate (dedup)
                 if show_in_ui {
@@ -333,6 +371,7 @@ async fn run_event_loop(
     conn_rx: &mut mpsc::Receiver<DriverConnectionEvent>,
     driver_handle: Option<Arc<DriverHandle>>,
     engine: Arc<RuleEngine>,
+    clear_cache_flag: Arc<AtomicBool>,
 ) -> Result<()> {
     loop {
         // Draw UI
@@ -377,6 +416,8 @@ async fn run_event_loop(
                                         Ok(()) => {
                                             // Refresh rules list
                                             app.rules = engine.rules();
+                                            // Signal poll loop to clear its verdict cache
+                                            clear_cache_flag.store(true, Ordering::Relaxed);
                                             let status = if !current_enabled { "enabled" } else { "disabled" };
                                             app.log(format!("Rule {} {}", &rule_id[..8.min(rule_id.len())], status));
                                         }
