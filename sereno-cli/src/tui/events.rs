@@ -10,6 +10,10 @@ pub enum EventResult {
     Continue,
     /// Exit the application
     Quit,
+    /// User decided to allow a pending connection
+    AllowPending(u64),
+    /// User decided to block a pending connection
+    BlockPending(u64),
 }
 
 /// Poll for and handle events
@@ -197,44 +201,61 @@ fn handle_pending_ask(app: &mut App, key: KeyEvent) -> EventResult {
     match key.code {
         KeyCode::Char('a') | KeyCode::Char('A') => {
             // Allow
-            if let Some(ref pending) = app.pending_ask {
+            if let Some(pending) = app.pending_ask.take() {
                 app.log(format!(
                     "ALLOWED: {} → {}",
                     pending.process_name, pending.destination
                 ));
+                // Update the connection in the list to show ALLOW
+                update_pending_connection(app, &pending, "ALLOW");
+                // Return verdict to send to driver
+                if let Some(request_id) = pending.request_id {
+                    return EventResult::AllowPending(request_id);
+                }
             }
-            app.pending_ask = None;
         }
         KeyCode::Char('b') | KeyCode::Char('B') => {
             // Block
-            if let Some(ref pending) = app.pending_ask {
+            if let Some(pending) = app.pending_ask.take() {
                 app.log(format!(
                     "BLOCKED: {} → {}",
                     pending.process_name, pending.destination
                 ));
+                // Update the connection in the list to show DENY
+                update_pending_connection(app, &pending, "DENY");
+                app.blocked_connections += 1;
+                // Return verdict to send to driver
+                if let Some(request_id) = pending.request_id {
+                    return EventResult::BlockPending(request_id);
+                }
             }
-            app.pending_ask = None;
         }
         KeyCode::Char('r') | KeyCode::Char('R') => {
-            // Create rule
-            if let Some(ref pending) = app.pending_ask {
+            // Create rule - for now, allow and log
+            if let Some(pending) = app.pending_ask.take() {
                 app.log(format!(
-                    "Creating rule for: {} → {}",
+                    "TODO: Rule creation for {} → {}",
                     pending.process_name, pending.destination
                 ));
+                // Allow for now while rule creation is implemented
+                update_pending_connection(app, &pending, "ALLOW");
+                if let Some(request_id) = pending.request_id {
+                    return EventResult::AllowPending(request_id);
+                }
             }
-            // TODO: Show rule creation dialog
-            app.pending_ask = None;
         }
         KeyCode::Char('i') | KeyCode::Char('I') | KeyCode::Esc => {
             // Ignore (allow this time but don't remember)
-            if let Some(ref pending) = app.pending_ask {
+            if let Some(pending) = app.pending_ask.take() {
                 app.log(format!(
                     "IGNORED: {} → {}",
                     pending.process_name, pending.destination
                 ));
+                update_pending_connection(app, &pending, "ALLOW");
+                if let Some(request_id) = pending.request_id {
+                    return EventResult::AllowPending(request_id);
+                }
             }
-            app.pending_ask = None;
         }
         KeyCode::Char('q') | KeyCode::Char('Q') => {
             return EventResult::Quit;
@@ -242,4 +263,19 @@ fn handle_pending_ask(app: &mut App, key: KeyEvent) -> EventResult {
         _ => {}
     }
     EventResult::Continue
+}
+
+/// Update a pending connection in the list after user decision
+fn update_pending_connection(app: &mut App, pending: &crate::tui::app::ConnectionEvent, new_action: &str) {
+    // Find the connection by request_id and update it
+    if let Some(request_id) = pending.request_id {
+        for conn in app.connections.iter_mut() {
+            if conn.request_id == Some(request_id) {
+                conn.action = new_action.to_string();
+                conn.is_pending = false;
+                conn.request_id = None;
+                break;
+            }
+        }
+    }
 }

@@ -111,6 +111,8 @@ pub struct ConnectionEvent {
     pub protocol: String,
     pub rule_name: Option<String>,
     pub is_pending: bool,
+    /// Driver request ID for pending ASK (needed to send verdict)
+    pub request_id: Option<u64>,
 }
 
 /// Main application state

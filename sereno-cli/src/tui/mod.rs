@@ -128,7 +128,19 @@ async fn driver_poll_loop(
     engine: Arc<RuleEngine>,
     tx: mpsc::Sender<DriverConnectionEvent>,
 ) {
+    use std::collections::HashMap;
+    use std::time::Instant;
+
+    // Cache to deduplicate repeated connections
+    // Key: (process_name, remote_ip, remote_port)
+    // Value: (verdict, timestamp, show_in_ui)
+    let mut verdict_cache: HashMap<(String, String, u16), (EvalResult, Instant)> = HashMap::new();
+    const CACHE_TTL_SECS: u64 = 30;
+
     loop {
+        // Clean old cache entries periodically
+        verdict_cache.retain(|_, (_, ts)| ts.elapsed().as_secs() < CACHE_TTL_SECS * 2);
+
         // Poll for pending connection
         match handle.get_pending() {
             Ok(Some(req)) => {
@@ -145,55 +157,80 @@ async fn driver_poll_loop(
                     domain: req.domain.clone(),
                 };
 
-                // Evaluate rules
-                let verdict = engine.evaluate(&ctx);
+                // Check cache for recent identical connection
+                let cache_key = (
+                    req.process_name.clone(),
+                    req.remote_address.to_string(),
+                    req.remote_port,
+                );
 
-                // Determine action string and send verdict to driver
-                let (action_str, allow) = match &verdict {
-                    EvalResult::Allow { .. } => ("ALLOW", true),
-                    EvalResult::Deny { .. } => ("DENY", false),
-                    EvalResult::Ask => ("ASK", true), // Default allow for ASK for now
+                let (verdict, show_in_ui) = if let Some((cached_verdict, ts)) = verdict_cache.get(&cache_key) {
+                    if ts.elapsed().as_secs() < CACHE_TTL_SECS {
+                        // Use cached verdict, don't show in UI (dedup)
+                        (cached_verdict.clone(), false)
+                    } else {
+                        // Cache expired, re-evaluate
+                        let v = engine.evaluate(&ctx);
+                        verdict_cache.insert(cache_key.clone(), (v.clone(), Instant::now()));
+                        (v, true)
+                    }
+                } else {
+                    // Not in cache, evaluate and cache
+                    let v = engine.evaluate(&ctx);
+                    verdict_cache.insert(cache_key.clone(), (v.clone(), Instant::now()));
+                    (v, true)
                 };
 
-                // Send verdict to driver immediately
-                let driver_verdict = if allow {
-                    DriverVerdict::Allow
-                } else {
-                    DriverVerdict::Block
+                // Determine action string
+                let action_str = match &verdict {
+                    EvalResult::Allow { .. } => "ALLOW",
+                    EvalResult::Deny { .. } => "DENY",
+                    EvalResult::Ask => "ASK",
+                };
+
+                // Send verdict to driver immediately for ALL cases
+                // ASK = allow now, prompt user to create rule for future
+                let driver_verdict = match &verdict {
+                    EvalResult::Allow { .. } => DriverVerdict::Allow,
+                    EvalResult::Deny { .. } => DriverVerdict::Block,
+                    EvalResult::Ask => DriverVerdict::Allow, // Allow now, ask about rule later
                 };
 
                 if let Err(e) = handle.set_verdict(req.request_id, driver_verdict) {
                     eprintln!("Failed to send verdict: {}", e);
                 }
 
-                // Create UI event
-                let event = ConnectionEvent {
-                    time: chrono::Local::now().format("%H:%M:%S").to_string(),
-                    action: action_str.to_string(),
-                    process_name: req.process_name,
-                    process_id: req.process_id,
-                    destination: req.domain.unwrap_or_else(|| req.remote_address.to_string()),
-                    port: req.remote_port,
-                    protocol: format!("{:?}", req.protocol),
-                    rule_name: match &verdict {
-                        EvalResult::Allow { rule_id } | EvalResult::Deny { rule_id } => {
-                            if rule_id.is_empty() {
-                                None
-                            } else {
-                                Some(rule_id[..8.min(rule_id.len())].to_string())
+                // Only send to UI if not a duplicate (dedup)
+                if show_in_ui {
+                    let event = ConnectionEvent {
+                        time: chrono::Local::now().format("%H:%M:%S").to_string(),
+                        action: action_str.to_string(),
+                        process_name: req.process_name,
+                        process_id: req.process_id,
+                        destination: req.domain.unwrap_or_else(|| req.remote_address.to_string()),
+                        port: req.remote_port,
+                        protocol: format!("{:?}", req.protocol),
+                        rule_name: match &verdict {
+                            EvalResult::Allow { rule_id } | EvalResult::Deny { rule_id } => {
+                                if rule_id.is_empty() {
+                                    None
+                                } else {
+                                    Some(rule_id[..8.min(rule_id.len())].to_string())
+                                }
                             }
-                        }
-                        EvalResult::Ask => None,
-                    },
-                    is_pending: matches!(verdict, EvalResult::Ask),
-                };
+                            EvalResult::Ask => None,
+                        },
+                        is_pending: false, // Not blocking anymore, just highlighting ASK
+                        request_id: None,
+                    };
 
-                // Send to UI
-                let _ = tx.send(DriverConnectionEvent {
-                    request_id: req.request_id,
-                    event,
-                    verdict,
-                }).await;
+                    // Send to UI
+                    let _ = tx.send(DriverConnectionEvent {
+                        request_id: req.request_id,
+                        event,
+                        verdict,
+                    }).await;
+                }
             }
             Ok(None) => {
                 // No pending requests, sleep briefly
@@ -213,7 +250,7 @@ async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     conn_rx: &mut mpsc::Receiver<DriverConnectionEvent>,
-    _driver_handle: Option<Arc<DriverHandle>>,
+    driver_handle: Option<Arc<DriverHandle>>,
 ) -> Result<()> {
     loop {
         // Draw UI
@@ -227,8 +264,25 @@ async fn run_event_loop(
                 if let Some(event) = poll_event(Duration::from_millis(0))? {
                     match event {
                         Event::Key(key) => {
-                            if matches!(handle_key_event(app, key), EventResult::Quit) {
-                                break;
+                            match handle_key_event(app, key) {
+                                EventResult::Quit => break,
+                                EventResult::AllowPending(request_id) => {
+                                    // Send ALLOW verdict to driver
+                                    if let Some(ref handle) = driver_handle {
+                                        if let Err(e) = handle.set_verdict(request_id, DriverVerdict::Allow) {
+                                            app.log(format!("Failed to send ALLOW: {}", e));
+                                        }
+                                    }
+                                }
+                                EventResult::BlockPending(request_id) => {
+                                    // Send BLOCK verdict to driver
+                                    if let Some(ref handle) = driver_handle {
+                                        if let Err(e) = handle.set_verdict(request_id, DriverVerdict::Block) {
+                                            app.log(format!("Failed to send BLOCK: {}", e));
+                                        }
+                                    }
+                                }
+                                EventResult::Continue => {}
                             }
                         }
                         Event::Resize(_, _) => {
@@ -241,6 +295,8 @@ async fn run_event_loop(
 
             // Check for driver connection events
             Some(driver_event) = conn_rx.recv() => {
+                // ASK connections are auto-allowed now (no blocking)
+                // pending_ask is no longer used since we don't block waiting for user
                 app.add_connection(driver_event.event);
             }
         }
@@ -311,6 +367,7 @@ fn is_running_as_admin() -> bool {
 }
 
 /// Add demo connections for testing the UI
+#[allow(dead_code)]
 fn add_demo_connections(app: &mut App) {
     let demo_events = vec![
         ConnectionEvent {
@@ -320,9 +377,10 @@ fn add_demo_connections(app: &mut App) {
             process_id: 7892,
             destination: "google.com".to_string(),
             port: 443,
-            protocol: "TCP".to_string(),
+            protocol: "Tcp".to_string(),
             rule_name: None,
             is_pending: false,
+            request_id: None,
         },
         ConnectionEvent {
             time: "19:45:14".to_string(),
@@ -331,9 +389,10 @@ fn add_demo_connections(app: &mut App) {
             process_id: 10860,
             destination: "github.com".to_string(),
             port: 443,
-            protocol: "TCP".to_string(),
+            protocol: "Tcp".to_string(),
             rule_name: None,
             is_pending: true,
+            request_id: Some(999), // Demo request ID
         },
         ConnectionEvent {
             time: "19:44:57".to_string(),
@@ -342,9 +401,10 @@ fn add_demo_connections(app: &mut App) {
             process_id: 4024,
             destination: "telemetry.microsoft.com".to_string(),
             port: 443,
-            protocol: "TCP".to_string(),
+            protocol: "Tcp".to_string(),
             rule_name: Some("Block Telemetry".to_string()),
             is_pending: false,
+            request_id: None,
         },
         ConnectionEvent {
             time: "19:44:57".to_string(),
@@ -353,9 +413,10 @@ fn add_demo_connections(app: &mut App) {
             process_id: 12816,
             destination: "localhost".to_string(),
             port: 50073,
-            protocol: "TCP".to_string(),
+            protocol: "Tcp".to_string(),
             rule_name: Some("Allow Local".to_string()),
             is_pending: false,
+            request_id: None,
         },
         ConnectionEvent {
             time: "19:44:52".to_string(),
@@ -364,9 +425,10 @@ fn add_demo_connections(app: &mut App) {
             process_id: 1234,
             destination: "windowsupdate.com".to_string(),
             port: 443,
-            protocol: "TCP".to_string(),
+            protocol: "Tcp".to_string(),
             rule_name: Some("Allow WU".to_string()),
             is_pending: false,
+            request_id: None,
         },
     ];
 
