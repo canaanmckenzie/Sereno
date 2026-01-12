@@ -11,12 +11,13 @@
 //! - Connection logging
 
 mod dns;
+mod dns_intercept;
 mod driver;
 mod process;
 mod wfp;
 
 use anyhow::Result;
-use colored::*;
+use colored::Colorize;
 use sereno_core::{
     database::Database,
     rule_engine::RuleEngine,
@@ -197,6 +198,10 @@ fn update_cache_hit(cache_key: &(String, std::net::IpAddr, u16), count: u32, bas
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Enable ANSI colors on Windows
+    #[cfg(windows)]
+    let _ = colored::control::set_virtual_terminal(true);
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter("sereno_service=info,sereno_core=info")
@@ -235,6 +240,23 @@ async fn main() -> Result<()> {
         rules.len(),
         enabled_count
     );
+
+    // Pre-resolve domains found in rules for domain-based blocking
+    dns_intercept::preload_domains_from_rules(&rules).await;
+
+    // Show cached domains for debugging
+    let cached_domains = dns::get_all_cached_domains();
+    if !cached_domains.is_empty() {
+        println!("{} {} domain(s) cached for blocking:", "Domains:".dimmed(), cached_domains.len());
+        for (domain, ips) in &cached_domains {
+            let ip_str = if ips.len() > 3 {
+                format!("{:?}... ({} total)", &ips[..3], ips.len())
+            } else {
+                format!("{:?}", ips)
+            };
+            println!("  {} → {}", domain.yellow(), ip_str.dimmed());
+        }
+    }
 
     // Initialize WFP
     let mut wfp_engine: Option<Arc<wfp::WfpEngine>> = None;
@@ -447,14 +469,28 @@ async fn main() -> Result<()> {
         // Clean up expired cache entries
         verdict_cache.retain(|_, e| e.first_seen.elapsed().as_secs() < VERDICT_CACHE_TTL_SECS);
 
-        // Use domain from driver/event if available, otherwise check cache only (no network lookup)
-        // This ensures sub-millisecond response time like Little Snitch
-        let domain = if event.domain.is_some() {
+        // Use domain from driver/event if available, otherwise check caches
+        let mut domain = if event.domain.is_some() {
             event.domain.clone()
         } else {
-            // Only use cached DNS results - no blocking network lookups
-            dns::get_cached(event.remote_address)
+            // Try multiple strategies to find a domain for this IP
+            dns::find_domain_for_ip(event.remote_address)
         };
+
+        // If no domain found and we're monitoring domains, try a quick re-resolve
+        // This handles geo-DNS/CDN cases where the IP differs from pre-resolved ones
+        if domain.is_none() && dns_intercept::monitored_count().await > 0 {
+            // Only for HTTPS/HTTP ports where domain blocking is most relevant
+            if event.remote_port == 443 || event.remote_port == 80 {
+                // Try to resolve and check in parallel with a short timeout
+                if let Ok(Some(resolved)) = tokio::time::timeout(
+                    tokio::time::Duration::from_millis(100),
+                    dns_intercept::resolve_and_check_ip(event.remote_address)
+                ).await {
+                    domain = Some(resolved);
+                }
+            }
+        }
 
         let ctx = ConnectionContext {
             process_path: event.process_path.clone(),
