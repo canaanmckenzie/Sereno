@@ -265,22 +265,30 @@ async fn driver_poll_loop(
                     req.remote_port,
                 );
 
-                let (verdict, show_in_ui) = if let Some((cached_verdict, ts)) = verdict_cache.get(&cache_key) {
+                // Evaluate the connection against rules
+                let verdict = engine.evaluate(&ctx);
+
+                // Check if we should show in UI (dedup repeated identical connections)
+                // But ALWAYS show if verdict changed from cached value (rule was toggled)
+                let show_in_ui = if let Some((cached_verdict, ts)) = verdict_cache.get(&cache_key) {
                     if ts.elapsed().as_secs() < CACHE_TTL_SECS {
-                        // Use cached verdict, don't show in UI (dedup)
-                        (cached_verdict.clone(), false)
+                        // Check if verdict changed - if so, show it
+                        let verdict_changed = match (&verdict, cached_verdict) {
+                            (EvalResult::Allow { .. }, EvalResult::Allow { .. }) => false,
+                            (EvalResult::Deny { .. }, EvalResult::Deny { .. }) => false,
+                            (EvalResult::Ask, EvalResult::Ask) => false,
+                            _ => true,
+                        };
+                        verdict_changed // Show if verdict changed, otherwise suppress
                     } else {
-                        // Cache expired, re-evaluate
-                        let v = engine.evaluate(&ctx);
-                        verdict_cache.insert(cache_key.clone(), (v.clone(), Instant::now()));
-                        (v, true)
+                        true // Cache expired, show
                     }
                 } else {
-                    // Not in cache, evaluate and cache
-                    let v = engine.evaluate(&ctx);
-                    verdict_cache.insert(cache_key.clone(), (v.clone(), Instant::now()));
-                    (v, true)
+                    true // Not in cache, show
                 };
+
+                // Update cache with current verdict
+                verdict_cache.insert(cache_key.clone(), (verdict.clone(), Instant::now()));
 
                 // Determine action string
                 let action_str = match &verdict {
@@ -429,6 +437,57 @@ async fn run_event_loop(
                                 EventResult::DeleteRule(_rule_id) => {
                                     // TODO: Delete rule from database
                                     app.log("Rule deletion not yet implemented".to_string());
+                                }
+                                EventResult::ToggleConnection { process_name, destination, port, current_action } => {
+                                    // Create a rule with the opposite action
+                                    use sereno_core::types::{Action, Condition, DomainPattern, PortMatcher};
+
+                                    let new_action = if current_action == "DENY" {
+                                        Action::Allow
+                                    } else {
+                                        Action::Deny
+                                    };
+
+                                    let action_str = if current_action == "DENY" { "ALLOW" } else { "DENY" };
+
+                                    // Build conditions for the rule
+                                    let mut conditions = Vec::new();
+
+                                    // Add domain condition (use destination as domain pattern)
+                                    // Check if destination looks like a domain (contains letters, not just IP)
+                                    let is_domain = destination.chars().any(|c| c.is_alphabetic());
+                                    if is_domain {
+                                        conditions.push(Condition::Domain {
+                                            patterns: vec![DomainPattern::Exact { value: destination.clone() }],
+                                        });
+                                    }
+
+                                    // Add port condition
+                                    conditions.push(Condition::RemotePort {
+                                        matcher: PortMatcher::Single { port },
+                                    });
+
+                                    // Create the rule with high priority so it takes effect
+                                    let rule_name = format!("{} {} ({}:{})", action_str, process_name, destination, port);
+                                    let mut rule = Rule::new(rule_name.clone(), new_action, conditions);
+                                    rule.priority = 50; // Higher than default rules
+
+                                    match engine.add_rule(rule) {
+                                        Ok(()) => {
+                                            app.rules = engine.rules();
+                                            clear_cache_flag.store(true, Ordering::Relaxed);
+                                            app.log(format!("Created rule: {}", rule_name));
+
+                                            // Update the connection in the list to show new action
+                                            if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                conn.action = action_str.to_string();
+                                                conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            app.log(format!("Failed to create rule: {}", e));
+                                        }
+                                    }
                                 }
                             }
                         }

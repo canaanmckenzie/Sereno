@@ -366,6 +366,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 Span::raw(" "),
                 Span::styled("↑↓/jk", Style::default().fg(Color::Cyan)),
                 Span::raw(" Navigate  "),
+                Span::styled("T", Style::default().fg(Color::Green)),
+                Span::raw(" Toggle  "),
                 Span::styled("C", Style::default().fg(Color::Cyan)),
                 Span::raw(" Clear  "),
                 Span::styled("Tab", Style::default().fg(Color::Cyan)),

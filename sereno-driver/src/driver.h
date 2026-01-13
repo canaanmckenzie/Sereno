@@ -154,15 +154,38 @@ typedef struct _DNS_CACHE_ENTRY {
     UINT32          DomainLength;       // Length in characters (excluding null)
 } DNS_CACHE_ENTRY, *PDNS_CACHE_ENTRY;
 
+// SNI cache settings - stores domain extracted from TLS ClientHello
+// Key: connection 5-tuple (LocalIP, LocalPort, RemoteIP, RemotePort, IsIPv6)
+// Value: Domain name from SNI extension
+#define MAX_SNI_CACHE_ENTRIES   512
+#define SNI_CACHE_TTL_100NS     (60LL * 1000 * 10000)  // 60 seconds in 100ns units
+
+// SNI cache entry - maps connection 5-tuple to domain from TLS ClientHello
+typedef struct _SNI_CACHE_ENTRY {
+    UINT64          Timestamp;
+    UINT32          LocalAddressV4;
+    UINT32          RemoteAddressV4;
+    UINT8           LocalAddressV6[16];
+    UINT8           RemoteAddressV6[16];
+    UINT16          LocalPort;
+    UINT16          RemotePort;
+    BOOLEAN         IsIPv6;
+    BOOLEAN         InUse;
+    WCHAR           DomainName[256];
+    UINT32          DomainLength;
+} SNI_CACHE_ENTRY, *PSNI_CACHE_ENTRY;
+
 // Verdict cache entry - for re-authorization after FwpsCompleteOperation0
-// Key: (ProcessId, RemotePort) -> Verdict
-// NOTE: IP address is intentionally NOT part of the key. This ensures that
-// if a user blocks "curl -> port 80", ALL destination IPs are blocked
-// (important because domains like example.com resolve to multiple IPs).
+// Key: (ProcessId, RemotePort, DomainName) -> Verdict
+// UPDATED: Now includes domain name to allow different verdicts for different domains
+// on the same port (e.g., allow google.com:443, block evil.com:443)
+// Fallback: If domain is empty, matches by (ProcessId, RemotePort) only for backwards compatibility
 typedef struct _VERDICT_CACHE_ENTRY {
     UINT64          Timestamp;
     UINT32          ProcessId;
     UINT16          RemotePort;
+    WCHAR           DomainName[256];    // Domain from SNI or DNS cache
+    UINT32          DomainLength;       // 0 = no domain (match by port only)
     SERENO_VERDICT  Verdict;
     BOOLEAN         InUse;
 } VERDICT_CACHE_ENTRY, *PVERDICT_CACHE_ENTRY;
@@ -197,6 +220,10 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     UINT32          DnsCalloutIdV4;
     UINT32          DnsCalloutIdV6;
 
+    // Callout IDs - Stream inspection (SNI extraction)
+    UINT32          StreamCalloutIdV4;
+    UINT32          StreamCalloutIdV6;
+
     // Filter IDs - Connection filtering
     UINT64          ConnectFilterIdV4;
     UINT64          ConnectFilterIdV6;
@@ -206,6 +233,10 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     // Filter IDs - DNS interception
     UINT64          DnsFilterIdV4;
     UINT64          DnsFilterIdV6;
+
+    // Filter IDs - Stream inspection (SNI extraction)
+    UINT64          StreamFilterIdV4;
+    UINT64          StreamFilterIdV6;
 
     // Pending requests
     LIST_ENTRY      PendingList;
@@ -221,6 +252,10 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     // Verdict cache - for re-authorization after FwpsCompleteOperation0
     VERDICT_CACHE_ENTRY VerdictCache[MAX_VERDICT_CACHE_ENTRIES];
     KSPIN_LOCK      VerdictCacheLock;
+
+    // SNI cache - maps connection 5-tuple to domain from TLS ClientHello
+    SNI_CACHE_ENTRY SniCache[MAX_SNI_CACHE_ENTRIES];
+    KSPIN_LOCK      SniCacheLock;
 
     // Statistics
     SERENO_STATS    Stats;
@@ -273,6 +308,17 @@ DEFINE_GUID(SERENO_CALLOUT_DNS_V6_GUID,
     0x53455245, 0x4E4F, 0x444E,
     0x53, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
 
+// {53455245-4E4F-5354-5201-000000000001} Stream Callout V4 (SNI Inspection)
+// "STRE" = 0x53545245, but using pattern {SERE-NO-ST-R1/R2}
+DEFINE_GUID(SERENO_CALLOUT_STREAM_V4_GUID,
+    0x53455245, 0x4E4F, 0x5354,
+    0x52, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-5354-5202-000000000001} Stream Callout V6 (SNI Inspection)
+DEFINE_GUID(SERENO_CALLOUT_STREAM_V6_GUID,
+    0x53455245, 0x4E4F, 0x5354,
+    0x52, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
 // Function prototypes
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD SerenoEvtDeviceAdd;
@@ -321,9 +367,28 @@ VOID SerenoDnsCacheAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6,
 BOOLEAN SerenoDnsCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 IpV4, _In_opt_ const UINT8* IpV6, _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer, _In_ UINT32 DomainBufferLength, _Out_ PUINT32 DomainLength);
 
 // Verdict cache management (for async pending re-authorization)
-VOID SerenoVerdictCacheAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ UINT32 ProcessId, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _In_ SERENO_VERDICT Verdict);
-BOOLEAN SerenoVerdictCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ UINT32 ProcessId, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _Out_ SERENO_VERDICT* Verdict);
+// UPDATED: Now includes domain name for domain-aware verdict caching
+VOID SerenoVerdictCacheAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ UINT32 ProcessId, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _In_opt_ PCWSTR DomainName, _In_ UINT32 DomainLength, _In_ SERENO_VERDICT Verdict);
+BOOLEAN SerenoVerdictCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ UINT32 ProcessId, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _In_opt_ PCWSTR DomainName, _In_ UINT32 DomainLength, _Out_ SERENO_VERDICT* Verdict);
 BOOLEAN SerenoVerdictCacheLookupByAddress(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _Out_ SERENO_VERDICT* Verdict);
+
+// SNI cache management (stores domain from TLS ClientHello)
+VOID SerenoSniCacheAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 LocalIpV4, _In_opt_ const UINT8* LocalIpV6, _In_ UINT16 LocalPort, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _In_ PCWSTR DomainName, _In_ UINT32 DomainLength);
+BOOLEAN SerenoSniCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 LocalIpV4, _In_opt_ const UINT8* LocalIpV6, _In_ UINT16 LocalPort, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer, _In_ UINT32 DomainBufferLength, _Out_ PUINT32 DomainLength);
+
+// TLS ClientHello parsing for SNI extraction
+BOOLEAN SerenoParseTlsClientHello(_In_ const UINT8* Data, _In_ UINT32 DataLength, _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer, _In_ UINT32 DomainBufferLength, _Out_ PUINT32 DomainLength);
+
+// Stream layer classify function (SNI extraction from TLS ClientHello)
+VOID NTAPI SerenoClassifyStream(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+);
 
 // DNS packet classify function
 VOID NTAPI SerenoClassifyDns(

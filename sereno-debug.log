@@ -163,3 +163,203 @@
 [18:43:17] Sent Allow for request 5 (ASK)
 [18:43:34] Got request 6 from curl.exe (2607:f8b0:4006:80d::200e:80) pid=12148
 [18:43:34] Sent Allow for request 6 (ASK)
+[13:26:53] Got request 2 from node.exe (2607:6bc0::10:443) pid=8696
+[13:26:53] Sent Allow for request 2 (ASK)
+[13:26:59] Got request 3 from curl.exe (2607:f8b0:4006:81e::200e:80) pid=11620
+[13:26:59] Sent Block for request 3 (DENY)
+[13:27:00] Got request 4 from node.exe (2607:6bc0::10:443) pid=8696
+[13:27:00] Sent Allow for request 4 (ASK)
+[13:27:01] Got request 5 from curl.exe (2606:7100:1:67::26:80) pid=4712
+[13:27:01] Sent Allow for request 5 (ASK)
+[13:27:04] Got request 6 from pwsh.exe (150.247.188.52:443) pid=11784
+[13:27:04] Sent Allow for request 6 (ASK)
+[13:27:16] Got request 7 from curl.exe (2606:7100:1:67::26:80) pid=7404
+[13:27:16] Sent Allow for request 7 (ASK)
+[13:27:18] Got request 8 from curl.exe (2607:f8b0:4006:81e::200e:80) pid=3192
+[13:27:18] Sent Allow for request 8 (ASK)
+[13:27:32] Got request 9 from curl.exe (2607:f8b0:4006:81e::200e:80) pid=9944
+[13:27:32] Sent Block for request 9 (DENY)
+[13:27:46] Got request 10 from git-remote-https.exe (4.114.82.140:443) pid=1492
+[13:27:46] Sent Allow for request 10 (ASK)
+[13:27:51] Got request 11 from Unknown (fe80::7203:7eff:fe0b:6eea:0) pid=4
+[13:27:51] Sent Allow for request 11 (ASK)
+[13:28:41] Got request 12 from node.exe (2607:6bc0::10:443) pid=8696
+[13:28:41] Sent Allow for request 12 (ASK)
+[13:28:46] Got request 13 from svchost.exe (203.197.79.204:80) pid=1508
+[13:28:46] Sent Allow for request 13 (ASK)
+[13:28:56] Got request 14 from svchost.exe (1.0.0.10:49152) pid=9800
+[13:28:56] Sent Allow for request 14 (ASK)
+[13:28:58] Got request 15 from node.exe (2600:1901:0:3084:::443) pid=8696
+[13:28:58] Sent Allow for request 15 (ASK)
+[13:29:00] Got request 16 from svchost.exe (2620:1ec:bdf::40:443) pid=9800
+[13:29:00] Sent Allow for request 16 (ASK)
+[13:29:11] Got request 17 from node.exe (2607:6bc0::10:443) pid=8696
+[13:29:11] Sent Allow for request 17 (ASK)
+[13:29:36] Got request 18 from MicrosoftStartFeedProvider.exe (2600:1401:d000:6::17c9:22a7:443) pid=8980
+[13:29:36] Sent Allow for request 18 (ASK)
+[13:29:37] Got request 19 from msedgewebview2.exe (2001:558:fd01:6453::13:443) pid=5768
+[13:29:37] Sent Allow for request 19 (ASK)
+[13:29:41] Got request 20 from node.exe (2607:6bc0::10:443) pid=8696
+[13:29:41] Sent Allow for request 20 (ASK)
+[13:29:59] Got request 22 from Code.exe (2620:1ec:29:1::40:443) pid=9264
+[13:29:59] Sent Allow for request 22 (ASK)
+[13:30:00] Got request 23 from node.exe (2607:6bc0::10:443) pid=8696
+[13:30:00] Sent Allow for request 23 (ASK)
+[13:40:18] Got request 24 from MpDefenderCoreService.exe (94.65.42.20:443) pid=3904
+[13:40:18] Sent Allow for request 24 (ASK)
+[13:40:18] Got request 25 from git-remote-https.exe (3.114.82.140:443) pid=8256
+[13:40:18] Sent Allow for request 25 (ASK)
+[13:40:18] Got request 26 from pwsh.exe (37.73.179.52:443) pid=12060
+[13:40:18] Sent Allow for request 26 (ASK)
+[13:40:18] Got request 27 from svchost.exe (232.168.11.51:443) pid=3744
+[13:40:18] Sent Allow for request 27 (ASK)
+[13:40:18] Got request 28 from svchost.exe (1.0.0.10:49152) pid=8896
+[13:40:18] Sent Allow for request 28 (ASK)
+[13:40:18] Got request 29 from svchost.exe (23.173.189.20:443) pid=3744
+[13:40:18] Sent Allow for request 29 (ASK)
+[13:40:18] Got request 30 from Code.exe (254.169.254.169:80) pid=10356
+[13:40:18] Sent Allow for request 30 (ASK)
+[13:40:18] Got request 31 from Code.exe (2620:1ec:48:1::40:443) pid=9264
+[13:40:18] Sent Allow for request 31 (ASK)
+[13:40:18] Got request 32 from Code.exe (2620:1ec:48:1::40:443) pid=9264
+[13:40:18] Sent Allow for request 32 (ASK)
+[13:40:18] Got request 33 from Code.exe (40.213.107.13:443) pid=9264
+[13:40:18] Sent Allow for request 33 (ASK)
+[13:40:18] Got request 34 from Code.exe (40.213.107.13:443) pid=9264
+[13:40:18] Sent Allow for request 34 (ASK)
+[13:40:18] Got request 35 from node.exe (2607:6bc0::10:443) pid=8696
+[13:40:18] Sent Allow for request 35 (ASK)
+[13:40:18] Got request 36 from Code.exe (91.65.42.20:443) pid=9264
+[13:40:18] Sent Allow for request 36 (ASK)
+[13:40:18] Got request 37 from Code.exe (91.65.42.20:443) pid=9264
+[13:40:18] Sent Allow for request 37 (ASK)
+[13:40:18] Got request 38 from node.exe (10.104.79.160:443) pid=8696
+[13:40:18] Sent Allow for request 38 (ALLOW)
+[13:40:19] Got request 39 from svchost.exe (26.178.89.13:443) pid=3744
+[13:40:19] Sent Allow for request 39 (ASK)
+[13:40:19] Got request 40 from node.exe (2607:6bc0::10:443) pid=8696
+[13:40:19] Sent Allow for request 40 (ASK)
+[13:40:21] Got request 41 from Code.exe (120.150.79.40:443) pid=10356
+[13:40:21] Sent Allow for request 41 (ASK)
+[13:40:25] Got request 42 from vctip.exe (25.173.189.20:443) pid=7004
+[13:40:25] Sent Allow for request 42 (ASK)
+[13:40:25] Got request 43 from MpDefenderCoreService.exe (94.65.42.20:443) pid=3904
+[13:40:25] Sent Allow for request 43 (ASK)
+[13:40:32] Got request 44 from curl.exe (2607:f8b0:4006:817::200e:443) pid=4180
+[13:40:32] Sent Block for request 44 (DENY)
+[13:40:49] Got request 45 from curl.exe (2607:f8b0:4006:817::200e:443) pid=6064
+[13:40:49] Sent Block for request 45 (DENY)
+[13:40:59] Got request 46 from Code.exe (2620:1ec:46::40:443) pid=9264
+[13:40:59] Sent Allow for request 46 (ASK)
+[13:41:05] Got request 47 from pwsh.exe (151.247.188.52:443) pid=11784
+[13:41:05] Sent Allow for request 47 (ASK)
+[13:41:14] Got request 48 from pwsh.exe (149.247.188.52:443) pid=12060
+[13:41:14] Sent Allow for request 48 (ASK)
+[13:41:23] Got request 49 from node.exe (2607:6bc0::10:443) pid=8696
+[13:41:23] Sent Allow for request 49 (ASK)
+[13:41:53] Got request 50 from curl.exe (2607:f8b0:4006:811::200e:443) pid=7560
+[13:41:53] Sent Allow for request 50 (ASK)
+[13:41:53] Got request 51 from lsass.exe (2607:f8b0:4006:817::2003:80) pid=1184
+[13:41:53] Sent Allow for request 51 (ASK)
+[13:41:54] Got request 52 from node.exe (2607:6bc0::10:443) pid=8696
+[13:41:54] Sent Allow for request 52 (ASK)
+[13:42:06] Got request 53 from curl.exe (2607:f8b0:4006:811::200e:443) pid=9012
+[13:42:06] Sent Allow for request 53 (ASK)
+[13:42:07] Got request 54 from node.exe (2607:6bc0::10:443) pid=8696
+[13:42:07] Sent Allow for request 54 (ASK)
+[13:42:21] Got request 55 from curl.exe (2607:f8b0:4006:811::200e:443) pid=11720
+[13:42:21] Sent Allow for request 55 (ASK)
+[13:42:24] Got request 56 from node.exe (2607:6bc0::10:443) pid=8696
+[13:42:24] Sent Allow for request 56 (ASK)
+[13:42:35] Got request 57 from curl.exe (2607:f8b0:4006:811::200e:443) pid=6560
+[13:42:35] Sent Allow for request 57 (ASK)
+[13:42:35] Got request 58 from node.exe (2600:1901:0:3084:::443) pid=8696
+[13:42:35] Sent Allow for request 58 (ASK)
+[13:42:45] Got request 59 from curl.exe (2607:f8b0:4006:811::200e:443) pid=2428
+[13:42:45] Sent Allow for request 59 (ASK)
+[13:42:47] Got request 60 from node.exe (2607:6bc0::10:443) pid=8696
+[13:42:47] Sent Allow for request 60 (ASK)
+[13:46:49] Got request 61 from pwsh.exe (146.247.188.52:443) pid=12060
+[13:46:49] Sent Allow for request 61 (ASK)
+[13:46:49] Got request 62 from git-remote-https.exe (4.114.82.140:443) pid=3712
+[13:46:49] Sent Allow for request 62 (ASK)
+[13:46:49] Got request 63 from Code.exe (9.179.89.13:443) pid=9264
+[13:46:49] Sent Allow for request 63 (ASK)
+[13:46:49] Got request 64 from Code.exe (9.179.89.13:443) pid=9264
+[13:46:49] Sent Allow for request 64 (ASK)
+[13:46:49] Got request 65 from Code.exe (175.117.168.52:443) pid=10356
+[13:46:49] Sent Allow for request 65 (ASK)
+[13:46:49] Got request 66 from vctip.exe (2600:1401:d000:13::17dd:ec59:443) pid=7488
+[13:46:49] Sent Allow for request 66 (ASK)
+[13:46:49] Got request 67 from Code.exe (175.117.168.52:443) pid=10356
+[13:46:49] Sent Allow for request 67 (ASK)
+[13:46:49] Got request 68 from vctip.exe (2600:1401:d000:13::17dd:ec59:443) pid=7488
+[13:46:49] Sent Allow for request 68 (ASK)
+[13:46:49] Got request 69 from vctip.exe (169.253.116.51:443) pid=7488
+[13:46:49] Sent Allow for request 69 (ASK)
+[13:46:49] Got request 70 from MpDefenderCoreService.exe (2603:1063:27:1::14:443) pid=3904
+[13:46:49] Sent Allow for request 70 (ASK)
+[13:46:49] Got request 71 from MpDefenderCoreService.exe (94.65.42.20:443) pid=3904
+[13:46:49] Sent Allow for request 71 (ASK)
+[13:46:49] Got request 72 from svchost.exe (12.157.190.20:443) pid=8296
+[13:46:49] Sent Allow for request 72 (ASK)
+[13:46:49] Got request 73 from Code.exe (2620:1ec:bdf::40:443) pid=9264
+[13:46:49] Sent Allow for request 73 (ASK)
+[13:46:49] Got request 74 from Code.exe (2620:1ec:bdf::40:443) pid=9264
+[13:46:49] Sent Allow for request 74 (ASK)
+[13:46:49] Got request 75 from Code.exe (40.226.107.13:443) pid=9264
+[13:46:49] Sent Allow for request 75 (ASK)
+[13:46:49] Got request 76 from Code.exe (40.226.107.13:443) pid=9264
+[13:46:49] Sent Allow for request 76 (ASK)
+[13:46:49] Got request 77 from MsMpEng.exe (20.160.178.172:443) pid=3912
+[13:46:49] Sent Allow for request 77 (ASK)
+[13:46:49] Got request 78 from Unknown (fe80::7203:7eff:fe0b:6eea:0) pid=4
+[13:46:49] Sent Allow for request 78 (ASK)
+[13:46:49] Got request 79 from MsMpEng.exe (20.160.178.172:443) pid=3912
+[13:46:49] Sent Allow for request 79 (ASK)
+[13:46:49] Got request 80 from MsMpEng.exe (20.160.178.172:443) pid=3912
+[13:46:49] Sent Allow for request 80 (ASK)
+[13:46:49] Got request 81 from Code.exe (84.65.42.20:443) pid=10356
+[13:46:49] Sent Allow for request 81 (ASK)
+[13:46:49] Got request 82 from taskhostw.exe (133.211.185.52:443) pid=8156
+[13:46:49] Sent Allow for request 82 (ASK)
+[13:46:50] Got request 83 from svchost.exe (12.157.190.20:443) pid=8296
+[13:46:50] Sent Allow for request 83 (ASK)
+[13:46:50] Got request 84 from taskhostw.exe (133.211.185.52:443) pid=8156
+[13:46:50] Sent Allow for request 84 (ASK)
+[13:46:51] Got request 85 from vctip.exe (2600:1401:d000:13::17dd:ec59:443) pid=7488
+[13:46:51] Sent Allow for request 85 (ASK)
+[13:46:51] Got request 86 from vctip.exe (2600:1401:d000:13::17dd:ec57:443) pid=7488
+[13:46:51] Sent Allow for request 86 (ASK)
+[13:46:51] Got request 87 from taskhostw.exe (133.211.185.52:443) pid=8156
+[13:46:51] Sent Allow for request 87 (ASK)
+[13:46:55] Got request 88 from MpDefenderCoreService.exe (94.65.42.20:443) pid=3904
+[13:46:55] Sent Allow for request 88 (ASK)
+[13:46:58] Got request 89 from curl.exe (2607:f8b0:4006:81c::200e:443) pid=4388
+[13:46:58] Sent Block for request 89 (DENY)
+[13:47:05] Got request 90 from pwsh.exe (38.73.179.52:443) pid=11784
+[13:47:05] Sent Allow for request 90 (ASK)
+[13:47:09] Got request 91 from vctip.exe (91.65.42.20:443) pid=7488
+[13:47:09] Sent Allow for request 91 (ASK)
+[13:47:10] Got request 92 from curl.exe (2607:f8b0:4006:81c::200e:443) pid=3368
+[13:47:10] Sent Allow for request 92 (ASK)
+[13:47:24] Got request 93 from pwsh.exe (149.247.188.52:443) pid=12060
+[13:47:24] Sent Allow for request 93 (ASK)
+[13:47:50] Got request 94 from svchost.exe (2a03:90c0:6d1:2801::60:80) pid=1508
+[13:47:50] Sent Allow for request 94 (ASK)
+[13:48:01] Got request 95 from MpDefenderCoreService.exe (2603:1063:27:2::14:443) pid=3904
+[13:48:01] Sent Allow for request 95 (ASK)
+[13:48:03] Got request 96 from curl.exe (2607:f8b0:4006:81c::200e:443) pid=7696
+[13:48:03] Sent Block for request 96 (DENY)
+[13:48:08] Got request 97 from node.exe (2606:4700::6810:22:443) pid=10332
+[13:48:08] Sent Allow for request 97 (ASK)
+[13:48:13] Got request 98 from curl.exe (2607:f8b0:4006:81c::200e:443) pid=10612
+[13:48:13] Sent Allow for request 98 (ASK)
+[13:48:47] Got request 99 from node.exe (2607:6bc0::10:443) pid=8696
+[13:48:47] Sent Allow for request 99 (ASK)
+[13:48:50] Got request 100 from svchost.exe (2607:1640:72::101:80) pid=1508
+[13:48:50] Sent Allow for request 100 (ASK)
+[13:49:04] Got request 101 from svchost.exe (1.0.0.10:49152) pid=2488
+[13:49:04] Sent Allow for request 101 (ASK)
+[13:49:15] Got request 102 from node.exe (2607:6bc0::10:443) pid=8696
+[13:49:15] Sent Allow for request 102 (ASK)

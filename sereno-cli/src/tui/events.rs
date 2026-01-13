@@ -18,6 +18,14 @@ pub enum EventResult {
     ToggleRule(String),
     /// Delete a rule
     DeleteRule(String),
+    /// Toggle a connection's verdict (create rule with opposite action)
+    /// Contains: (process_name, destination/domain, port, current_action)
+    ToggleConnection {
+        process_name: String,
+        destination: String,
+        port: u16,
+        current_action: String,
+    },
 }
 
 /// Poll for and handle events
@@ -121,6 +129,17 @@ fn handle_monitor_key(app: &mut App, key: KeyEvent) -> EventResult {
             app.connections.clear();
             app.selected_connection = 0;
             app.log("Cleared connection list".to_string());
+        }
+        KeyCode::Char('t') | KeyCode::Char('T') => {
+            // Toggle connection - create rule with opposite action
+            if let Some(conn) = app.selected_connection_event() {
+                return EventResult::ToggleConnection {
+                    process_name: conn.process_name.clone(),
+                    destination: conn.destination.clone(),
+                    port: conn.port,
+                    current_action: conn.action.clone(),
+                };
+            }
         }
         _ => {}
     }

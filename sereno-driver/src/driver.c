@@ -230,6 +230,10 @@ DriverEntry(
     RtlZeroMemory(deviceContext->VerdictCache, sizeof(deviceContext->VerdictCache));
     KeInitializeSpinLock(&deviceContext->VerdictCacheLock);
 
+    // Initialize SNI cache (for TLS ClientHello domain extraction)
+    RtlZeroMemory(deviceContext->SniCache, sizeof(deviceContext->SniCache));
+    KeInitializeSpinLock(&deviceContext->SniCacheLock);
+
     // Create symbolic link
     status = WdfDeviceCreateSymbolicLink(g_ControlDevice, &symlinkName);
     if (!NT_SUCCESS(status)) {
@@ -720,6 +724,103 @@ SerenoRegisterCallouts(
         }
     }
 
+    // ========================================
+    // Stream Callouts (SNI Inspection - port 443 HTTPS)
+    // ========================================
+
+    // Register Stream V4 callout
+    sCallout.calloutKey = SERENO_CALLOUT_STREAM_V4_GUID;
+    sCallout.classifyFn = SerenoClassifyStream;
+    sCallout.notifyFn = SerenoNotify;
+    sCallout.flowDeleteFn = SerenoFlowDelete;
+    sCallout.flags = 0;
+
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->StreamCalloutIdV4);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Stream V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add Stream V4 callout to filter engine
+    mCallout.calloutKey = SERENO_CALLOUT_STREAM_V4_GUID;
+    mCallout.displayData.name = L"Sereno Stream V4 Callout";
+    mCallout.displayData.description = L"Inspects TCP streams for TLS SNI extraction";
+    mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+    mCallout.applicableLayer = FWPM_LAYER_STREAM_V4;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Stream V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Register Stream V6 callout
+    sCallout.calloutKey = SERENO_CALLOUT_STREAM_V6_GUID;
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->StreamCalloutIdV6);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Stream V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    mCallout.calloutKey = SERENO_CALLOUT_STREAM_V6_GUID;
+    mCallout.displayData.name = L"Sereno Stream V6 Callout";
+    mCallout.applicableLayer = FWPM_LAYER_STREAM_V6;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Stream V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add Stream filter V4 - only match port 443 (HTTPS)
+    // NOTE: Stream layer is TCP-only by definition, no protocol condition needed
+    {
+        FWPM_FILTER_CONDITION0 streamConditions[1];
+
+        // Condition: Remote port 443 (HTTPS)
+        streamConditions[0].fieldKey = FWPM_CONDITION_IP_REMOTE_PORT;
+        streamConditions[0].matchType = FWP_MATCH_EQUAL;
+        streamConditions[0].conditionValue.type = FWP_UINT16;
+        streamConditions[0].conditionValue.uint16 = 443;
+
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_STREAM_V4;
+        filter.displayData.name = L"Sereno Stream V4 Filter";
+        filter.displayData.description = L"Inspects HTTPS traffic for SNI";
+        filter.action.type = FWP_ACTION_CALLOUT_INSPECTION;  // Inspect only, don't block
+        filter.action.calloutKey = SERENO_CALLOUT_STREAM_V4_GUID;
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0xF;
+        filter.numFilterConditions = 1;
+        filter.filterCondition = streamConditions;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->StreamFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Stream V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add Stream filter V6
+        filter.layerKey = FWPM_LAYER_STREAM_V6;
+        filter.displayData.name = L"Sereno Stream V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_STREAM_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->StreamFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Stream V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
     // Commit transaction
     status = FwpmTransactionCommit0(DeviceContext->EngineHandle);
     if (!NT_SUCCESS(status)) {
@@ -765,6 +866,14 @@ SerenoUnregisterCallouts(
             FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->DnsFilterIdV6);
         }
 
+        // Remove Stream filters
+        if (DeviceContext->StreamFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->StreamFilterIdV4);
+        }
+        if (DeviceContext->StreamFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->StreamFilterIdV6);
+        }
+
         FwpmEngineClose0(DeviceContext->EngineHandle);
         DeviceContext->EngineHandle = NULL;
     }
@@ -787,6 +896,16 @@ SerenoUnregisterCallouts(
     if (DeviceContext->DnsCalloutIdV6) {
         FwpsCalloutUnregisterById0(DeviceContext->DnsCalloutIdV6);
         DeviceContext->DnsCalloutIdV6 = 0;
+    }
+
+    // Unregister Stream callouts
+    if (DeviceContext->StreamCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->StreamCalloutIdV4);
+        DeviceContext->StreamCalloutIdV4 = 0;
+    }
+    if (DeviceContext->StreamCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->StreamCalloutIdV6);
+        DeviceContext->StreamCalloutIdV6 = 0;
     }
 
     SERENO_DBG("Callouts unregistered\n");
@@ -937,6 +1056,8 @@ SerenoClassifyConnect(
         UINT32 lookupPid = (UINT32)(ULONG_PTR)processId;
 
         // Try with actual ProcessId first
+        // Note: Domain is not yet known at this point - pass NULL for backwards compatibility
+        // Domain-aware cache matching happens when domain is known from SNI/DNS cache
         if (SerenoVerdictCacheLookup(
                 deviceContext,
                 lookupPid,
@@ -944,6 +1065,8 @@ SerenoClassifyConnect(
                 remoteAddrV4,
                 isIPv6 ? remoteAddrV6 : NULL,
                 remotePort,
+                NULL,  // Domain not known yet
+                0,
                 &cachedVerdict)) {
             // Found cached verdict - use it immediately without pending
             SERENO_DBG("Cache HIT pid=%u port=%u verdict=%d", lookupPid, remotePort, cachedVerdict);
@@ -1251,6 +1374,8 @@ SerenoCompletePendingRequest(
             request->ConnectionInfo.RemoteAddressV4,
             request->IsIPv6 ? request->ConnectionInfo.RemoteAddressV6 : NULL,
             request->ConnectionInfo.RemotePort,
+            request->ConnectionInfo.DomainNameLength > 0 ? request->ConnectionInfo.DomainName : NULL,
+            request->ConnectionInfo.DomainNameLength,
             Verdict
         );
 
@@ -1287,8 +1412,8 @@ SerenoCompletePendingRequest(
  * SerenoVerdictCacheAdd - Add a verdict to the cache
  * Called BEFORE FwpsCompleteOperation0 to remember the verdict for re-auth
  *
- * NOTE: We key by (ProcessId, RemotePort) only, ignoring IP address.
- * If an entry already exists for this (pid, port), we UPDATE it.
+ * UPDATED: Now keys by (ProcessId, RemotePort, DomainName) for domain-aware blocking.
+ * If DomainName is NULL or DomainLength is 0, the entry has no domain (fallback to port-only).
  */
 VOID
 SerenoVerdictCacheAdd(
@@ -1298,6 +1423,8 @@ SerenoVerdictCacheAdd(
     _In_ UINT32 RemoteIpV4,
     _In_opt_ const UINT8* RemoteIpV6,
     _In_ UINT16 RemotePort,
+    _In_opt_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength,
     _In_ SERENO_VERDICT Verdict
 )
 {
@@ -1307,6 +1434,7 @@ SerenoVerdictCacheAdd(
     UINT32 oldestIndex = 0;
     UINT64 oldestTime = MAXUINT64;
     UINT32 i;
+    BOOLEAN hasDomain = (DomainName != NULL && DomainLength > 0);
 
     UNREFERENCED_PARAMETER(IsIPv6);
     UNREFERENCED_PARAMETER(RemoteIpV4);
@@ -1314,7 +1442,7 @@ SerenoVerdictCacheAdd(
 
     KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
 
-    // First pass: look for existing entry with same (pid, port) OR find empty/oldest slot
+    // First pass: look for existing entry with same (pid, port, domain) OR find empty/oldest slot
     for (i = 0; i < MAX_VERDICT_CACHE_ENTRIES; i++) {
         if (!Context->VerdictCache[i].InUse) {
             // Empty slot - candidate for new entry
@@ -1333,11 +1461,22 @@ SerenoVerdictCacheAdd(
             continue;
         }
 
-        // Check if this is an existing entry for same (pid, port) - UPDATE it
+        // Check if this is an existing entry for same (pid, port, domain) - UPDATE it
         if (Context->VerdictCache[i].ProcessId == ProcessId &&
             Context->VerdictCache[i].RemotePort == RemotePort) {
-            targetIndex = i;
-            // Don't break - continue to clean up expired entries
+            // Check domain match
+            BOOLEAN cacheDomain = (Context->VerdictCache[i].DomainLength > 0);
+            if (hasDomain && cacheDomain) {
+                // Both have domains - must match
+                if (Context->VerdictCache[i].DomainLength == DomainLength &&
+                    _wcsnicmp(Context->VerdictCache[i].DomainName, DomainName, DomainLength) == 0) {
+                    targetIndex = i;
+                }
+            } else if (!hasDomain && !cacheDomain) {
+                // Neither has domain - match
+                targetIndex = i;
+            }
+            // If one has domain and other doesn't, they're different entries
         }
 
         // Track oldest for eviction if needed
@@ -1359,6 +1498,17 @@ SerenoVerdictCacheAdd(
     Context->VerdictCache[targetIndex].Verdict = Verdict;
     Context->VerdictCache[targetIndex].InUse = TRUE;
 
+    // Store domain if provided
+    if (hasDomain) {
+        UINT32 copyLen = min(DomainLength, 255);
+        RtlCopyMemory(Context->VerdictCache[targetIndex].DomainName, DomainName, copyLen * sizeof(WCHAR));
+        Context->VerdictCache[targetIndex].DomainName[copyLen] = L'\0';
+        Context->VerdictCache[targetIndex].DomainLength = copyLen;
+    } else {
+        Context->VerdictCache[targetIndex].DomainName[0] = L'\0';
+        Context->VerdictCache[targetIndex].DomainLength = 0;
+    }
+
     KeReleaseSpinLock(&Context->VerdictCacheLock, oldIrql);
 }
 
@@ -1367,9 +1517,9 @@ SerenoVerdictCacheAdd(
  * Called during re-authorization (no completion handle available)
  * Returns TRUE if found (and sets Verdict), FALSE if not found
  *
- * NOTE: We match by (ProcessId, RemotePort) ONLY, ignoring IP address.
- * This ensures that if a user blocks "curl -> port 80", ALL destination IPs
- * are blocked (domains like example.com have multiple A records).
+ * UPDATED: Now matches by (ProcessId, RemotePort, DomainName) for domain-aware blocking.
+ * Fallback behavior: If looking up with a domain and no domain-specific match is found,
+ * we also check for a domain-less (pid, port) match for backwards compatibility.
  */
 BOOLEAN
 SerenoVerdictCacheLookup(
@@ -1379,6 +1529,8 @@ SerenoVerdictCacheLookup(
     _In_ UINT32 RemoteIpV4,
     _In_opt_ const UINT8* RemoteIpV6,
     _In_ UINT16 RemotePort,
+    _In_opt_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength,
     _Out_ SERENO_VERDICT* Verdict
 )
 {
@@ -1386,6 +1538,8 @@ SerenoVerdictCacheLookup(
     UINT64 now = KeQueryInterruptTime();
     UINT32 i;
     BOOLEAN found = FALSE;
+    BOOLEAN hasDomain = (DomainName != NULL && DomainLength > 0);
+    UINT32 fallbackIndex = MAX_VERDICT_CACHE_ENTRIES;  // For port-only fallback
 
     UNREFERENCED_PARAMETER(IsIPv6);
     UNREFERENCED_PARAMETER(RemoteIpV4);
@@ -1404,14 +1558,38 @@ SerenoVerdictCacheLookup(
             continue;
         }
 
-        // Match by (ProcessId, RemotePort) only - ignore IP address
-        // This ensures blocking applies to ALL IPs for a given process+port
+        // Check ProcessId and RemotePort
         if (Context->VerdictCache[i].ProcessId != ProcessId) continue;
         if (Context->VerdictCache[i].RemotePort != RemotePort) continue;
 
-        *Verdict = Context->VerdictCache[i].Verdict;
+        // Check domain match
+        BOOLEAN cacheDomain = (Context->VerdictCache[i].DomainLength > 0);
+
+        if (hasDomain && cacheDomain) {
+            // Both have domains - exact match required
+            if (Context->VerdictCache[i].DomainLength == DomainLength &&
+                _wcsnicmp(Context->VerdictCache[i].DomainName, DomainName, DomainLength) == 0) {
+                *Verdict = Context->VerdictCache[i].Verdict;
+                found = TRUE;
+                break;
+            }
+        } else if (!hasDomain && !cacheDomain) {
+            // Neither has domain - match
+            *Verdict = Context->VerdictCache[i].Verdict;
+            found = TRUE;
+            break;
+        } else if (!cacheDomain) {
+            // Cache has no domain but we have one - remember as fallback
+            // This allows a port-level block to still apply when domain is known
+            fallbackIndex = i;
+        }
+        // If cache has domain but we don't, skip (we can't match specific domain)
+    }
+
+    // If no exact match found but we have a port-only fallback, use it
+    if (!found && fallbackIndex < MAX_VERDICT_CACHE_ENTRIES) {
+        *Verdict = Context->VerdictCache[fallbackIndex].Verdict;
         found = TRUE;
-        break;
     }
 
     KeReleaseSpinLock(&Context->VerdictCacheLock, oldIrql);
@@ -1510,6 +1688,500 @@ SerenoGetProcessPath(
 
     ObDereferenceObject(process);
     return status;
+}
+
+// ============================================================================
+// SNI Cache Management - Stores domain from TLS ClientHello
+// ============================================================================
+
+/*
+ * SerenoSniCacheAdd - Add domain from TLS ClientHello to cache
+ * Key: (LocalIP, LocalPort, RemoteIP, RemotePort, IsIPv6) -> Domain
+ */
+VOID
+SerenoSniCacheAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 LocalIpV4,
+    _In_opt_ const UINT8* LocalIpV6,
+    _In_ UINT16 LocalPort,
+    _In_ UINT32 RemoteIpV4,
+    _In_opt_ const UINT8* RemoteIpV6,
+    _In_ UINT16 RemotePort,
+    _In_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength
+)
+{
+    KIRQL oldIrql;
+    UINT64 now = KeQueryInterruptTime();
+    UINT32 targetIndex = MAX_SNI_CACHE_ENTRIES;
+    UINT32 oldestIndex = 0;
+    UINT64 oldestTime = MAXUINT64;
+    UINT32 i;
+
+    if (DomainLength == 0 || DomainName == NULL) {
+        return;
+    }
+
+    KeAcquireSpinLock(&Context->SniCacheLock, &oldIrql);
+
+    // Find empty slot or oldest entry to evict
+    for (i = 0; i < MAX_SNI_CACHE_ENTRIES; i++) {
+        if (!Context->SniCache[i].InUse) {
+            if (targetIndex == MAX_SNI_CACHE_ENTRIES) {
+                oldestIndex = i;
+            }
+            continue;
+        }
+
+        // Check for expired entry
+        if ((now - Context->SniCache[i].Timestamp) > SNI_CACHE_TTL_100NS) {
+            Context->SniCache[i].InUse = FALSE;
+            if (targetIndex == MAX_SNI_CACHE_ENTRIES) {
+                oldestIndex = i;
+            }
+            continue;
+        }
+
+        // Check if this is an existing entry for same 5-tuple - UPDATE it
+        if (Context->SniCache[i].IsIPv6 == IsIPv6 &&
+            Context->SniCache[i].LocalPort == LocalPort &&
+            Context->SniCache[i].RemotePort == RemotePort) {
+            if (IsIPv6) {
+                if (LocalIpV6 && RtlCompareMemory(Context->SniCache[i].LocalAddressV6, LocalIpV6, 16) == 16 &&
+                    RemoteIpV6 && RtlCompareMemory(Context->SniCache[i].RemoteAddressV6, RemoteIpV6, 16) == 16) {
+                    targetIndex = i;
+                }
+            } else {
+                if (Context->SniCache[i].LocalAddressV4 == LocalIpV4 &&
+                    Context->SniCache[i].RemoteAddressV4 == RemoteIpV4) {
+                    targetIndex = i;
+                }
+            }
+        }
+
+        // Track oldest for eviction
+        if (Context->SniCache[i].Timestamp < oldestTime) {
+            oldestTime = Context->SniCache[i].Timestamp;
+            oldestIndex = i;
+        }
+    }
+
+    if (targetIndex == MAX_SNI_CACHE_ENTRIES) {
+        targetIndex = oldestIndex;
+    }
+
+    // Store in cache
+    Context->SniCache[targetIndex].Timestamp = now;
+    Context->SniCache[targetIndex].IsIPv6 = IsIPv6;
+    Context->SniCache[targetIndex].LocalPort = LocalPort;
+    Context->SniCache[targetIndex].RemotePort = RemotePort;
+    Context->SniCache[targetIndex].InUse = TRUE;
+
+    if (IsIPv6) {
+        if (LocalIpV6) RtlCopyMemory(Context->SniCache[targetIndex].LocalAddressV6, LocalIpV6, 16);
+        if (RemoteIpV6) RtlCopyMemory(Context->SniCache[targetIndex].RemoteAddressV6, RemoteIpV6, 16);
+    } else {
+        Context->SniCache[targetIndex].LocalAddressV4 = LocalIpV4;
+        Context->SniCache[targetIndex].RemoteAddressV4 = RemoteIpV4;
+    }
+
+    UINT32 copyLen = min(DomainLength, 255);
+    RtlCopyMemory(Context->SniCache[targetIndex].DomainName, DomainName, copyLen * sizeof(WCHAR));
+    Context->SniCache[targetIndex].DomainName[copyLen] = L'\0';
+    Context->SniCache[targetIndex].DomainLength = copyLen;
+
+    KeReleaseSpinLock(&Context->SniCacheLock, oldIrql);
+
+    SERENO_DBG("SNI Cache ADD: port=%u->%u domain=%S", LocalPort, RemotePort, DomainName);
+}
+
+/*
+ * SerenoSniCacheLookup - Lookup domain by connection 5-tuple
+ */
+BOOLEAN
+SerenoSniCacheLookup(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 LocalIpV4,
+    _In_opt_ const UINT8* LocalIpV6,
+    _In_ UINT16 LocalPort,
+    _In_ UINT32 RemoteIpV4,
+    _In_opt_ const UINT8* RemoteIpV6,
+    _In_ UINT16 RemotePort,
+    _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer,
+    _In_ UINT32 DomainBufferLength,
+    _Out_ PUINT32 DomainLength
+)
+{
+    KIRQL oldIrql;
+    UINT64 now = KeQueryInterruptTime();
+    UINT32 i;
+    BOOLEAN found = FALSE;
+
+    *DomainLength = 0;
+    if (DomainBufferLength > 0) {
+        DomainBuffer[0] = L'\0';
+    }
+
+    KeAcquireSpinLock(&Context->SniCacheLock, &oldIrql);
+
+    for (i = 0; i < MAX_SNI_CACHE_ENTRIES; i++) {
+        if (!Context->SniCache[i].InUse) continue;
+
+        // Check TTL
+        if ((now - Context->SniCache[i].Timestamp) > SNI_CACHE_TTL_100NS) {
+            Context->SniCache[i].InUse = FALSE;
+            continue;
+        }
+
+        // Match 5-tuple
+        if (Context->SniCache[i].IsIPv6 != IsIPv6) continue;
+        if (Context->SniCache[i].LocalPort != LocalPort) continue;
+        if (Context->SniCache[i].RemotePort != RemotePort) continue;
+
+        if (IsIPv6) {
+            if (!LocalIpV6 || !RemoteIpV6) continue;
+            if (RtlCompareMemory(Context->SniCache[i].LocalAddressV6, LocalIpV6, 16) != 16) continue;
+            if (RtlCompareMemory(Context->SniCache[i].RemoteAddressV6, RemoteIpV6, 16) != 16) continue;
+        } else {
+            if (Context->SniCache[i].LocalAddressV4 != LocalIpV4) continue;
+            if (Context->SniCache[i].RemoteAddressV4 != RemoteIpV4) continue;
+        }
+
+        // Found match
+        UINT32 copyLen = min(Context->SniCache[i].DomainLength, DomainBufferLength - 1);
+        RtlCopyMemory(DomainBuffer, Context->SniCache[i].DomainName, copyLen * sizeof(WCHAR));
+        DomainBuffer[copyLen] = L'\0';
+        *DomainLength = copyLen;
+        found = TRUE;
+        break;
+    }
+
+    KeReleaseSpinLock(&Context->SniCacheLock, oldIrql);
+    return found;
+}
+
+// ============================================================================
+// TLS ClientHello Parsing - Extract SNI from TLS handshake
+// ============================================================================
+
+/*
+ * SerenoParseTlsClientHello - Parse TLS ClientHello to extract SNI
+ *
+ * TLS Record:
+ *   [1] ContentType (0x16 = Handshake)
+ *   [2] Version
+ *   [2] Length
+ *
+ * Handshake:
+ *   [1] Type (0x01 = ClientHello)
+ *   [3] Length
+ *
+ * ClientHello:
+ *   [2] Version
+ *   [32] Random
+ *   [1] SessionID Length + data
+ *   [2] Cipher Suites Length + data
+ *   [1] Compression Methods Length + data
+ *   [2] Extensions Length
+ *
+ * SNI Extension (Type 0x0000):
+ *   [2] Type
+ *   [2] Length
+ *   [2] SNI List Length
+ *   [1] Name Type (0x00 = hostname)
+ *   [2] Name Length
+ *   [N] Hostname (ASCII)
+ */
+BOOLEAN
+SerenoParseTlsClientHello(
+    _In_ const UINT8* Data,
+    _In_ UINT32 DataLength,
+    _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer,
+    _In_ UINT32 DomainBufferLength,
+    _Out_ PUINT32 DomainLength
+)
+{
+    UINT32 offset = 0;
+    UINT32 recordLength;
+    UINT32 handshakeLength;
+    UINT32 sessionIdLength;
+    UINT32 cipherSuitesLength;
+    UINT32 compressionMethodsLength;
+    UINT32 extensionsLength;
+    UINT32 extensionsEnd;
+
+    *DomainLength = 0;
+    if (DomainBufferLength > 0) {
+        DomainBuffer[0] = L'\0';
+    }
+
+    // Minimum TLS record header: 5 bytes
+    if (DataLength < 5) {
+        return FALSE;
+    }
+
+    // Check TLS Record: ContentType = 0x16 (Handshake)
+    if (Data[0] != 0x16) {
+        return FALSE;
+    }
+
+    // Skip Version [2 bytes]
+    // Record Length [2 bytes, big-endian]
+    recordLength = (Data[3] << 8) | Data[4];
+    offset = 5;
+
+    // Check we have enough data
+    if (DataLength < offset + recordLength || recordLength < 4) {
+        return FALSE;
+    }
+
+    // Handshake Header
+    // Type [1 byte] = 0x01 (ClientHello)
+    if (Data[offset] != 0x01) {
+        return FALSE;
+    }
+    offset++;
+
+    // Handshake Length [3 bytes, big-endian]
+    handshakeLength = (Data[offset] << 16) | (Data[offset + 1] << 8) | Data[offset + 2];
+    offset += 3;
+
+    // Check we have enough data for ClientHello
+    if (DataLength < offset + handshakeLength) {
+        return FALSE;
+    }
+
+    // ClientHello body
+    // Version [2 bytes]
+    if (offset + 2 > DataLength) return FALSE;
+    offset += 2;
+
+    // Random [32 bytes]
+    if (offset + 32 > DataLength) return FALSE;
+    offset += 32;
+
+    // Session ID Length [1 byte] + Session ID
+    if (offset + 1 > DataLength) return FALSE;
+    sessionIdLength = Data[offset];
+    offset++;
+    if (offset + sessionIdLength > DataLength) return FALSE;
+    offset += sessionIdLength;
+
+    // Cipher Suites Length [2 bytes] + Cipher Suites
+    if (offset + 2 > DataLength) return FALSE;
+    cipherSuitesLength = (Data[offset] << 8) | Data[offset + 1];
+    offset += 2;
+    if (offset + cipherSuitesLength > DataLength) return FALSE;
+    offset += cipherSuitesLength;
+
+    // Compression Methods Length [1 byte] + Compression Methods
+    if (offset + 1 > DataLength) return FALSE;
+    compressionMethodsLength = Data[offset];
+    offset++;
+    if (offset + compressionMethodsLength > DataLength) return FALSE;
+    offset += compressionMethodsLength;
+
+    // Extensions Length [2 bytes]
+    if (offset + 2 > DataLength) return FALSE;
+    extensionsLength = (Data[offset] << 8) | Data[offset + 1];
+    offset += 2;
+
+    if (offset + extensionsLength > DataLength) return FALSE;
+    extensionsEnd = offset + extensionsLength;
+
+    // Parse extensions to find SNI (Type 0x0000)
+    while (offset + 4 <= extensionsEnd) {
+        UINT16 extType = (Data[offset] << 8) | Data[offset + 1];
+        UINT16 extLength = (Data[offset + 2] << 8) | Data[offset + 3];
+        offset += 4;
+
+        if (offset + extLength > extensionsEnd) {
+            break;
+        }
+
+        if (extType == 0x0000) {  // SNI extension
+            // SNI extension data:
+            // [2] SNI List Length
+            // [1] Name Type (0x00 = hostname)
+            // [2] Name Length
+            // [N] Name (ASCII)
+            if (extLength >= 5) {
+                UINT16 sniListLength = (Data[offset] << 8) | Data[offset + 1];
+                UNREFERENCED_PARAMETER(sniListLength);
+                UINT8 nameType = Data[offset + 2];
+
+                if (nameType == 0x00) {  // hostname
+                    UINT16 nameLength = (Data[offset + 3] << 8) | Data[offset + 4];
+                    if (offset + 5 + nameLength <= extensionsEnd) {
+                        // Convert ASCII hostname to wide string
+                        UINT32 copyLen = min(nameLength, DomainBufferLength - 1);
+                        for (UINT32 j = 0; j < copyLen; j++) {
+                            DomainBuffer[j] = (WCHAR)Data[offset + 5 + j];
+                        }
+                        DomainBuffer[copyLen] = L'\0';
+                        *DomainLength = copyLen;
+                        return TRUE;
+                    }
+                }
+            }
+        }
+
+        offset += extLength;
+    }
+
+    return FALSE;
+}
+
+// ============================================================================
+// Stream Layer Classification - SNI Extraction from TLS ClientHello
+// ============================================================================
+
+/*
+ * SerenoClassifyStream - Stream layer callout for SNI extraction
+ *
+ * Inspects outbound TCP stream data on port 443 for TLS ClientHello.
+ * Extracts SNI and stores in cache for later verdict lookup.
+ * This is INSPECTION ONLY - always permits the data.
+ */
+VOID NTAPI
+SerenoClassifyStream(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext;
+    FWPS_STREAM_CALLOUT_IO_PACKET0* streamPacket;
+    FWPS_STREAM_DATA0* streamData;
+    NET_BUFFER_LIST* netBufferList;
+    NET_BUFFER* netBuffer;
+    UINT32 dataLength;
+    UINT8* dataBuffer = NULL;
+    UINT8* allocatedBuffer = NULL;
+    BOOLEAN isIPv6;
+    UINT32 localAddrV4 = 0;
+    UINT32 remoteAddrV4 = 0;
+    UINT8 localAddrV6[16] = {0};
+    UINT8 remoteAddrV6[16] = {0};
+    UINT16 localPort;
+    UINT16 remotePort;
+    UINT32 flags;
+    WCHAR domainBuffer[256];
+    UINT32 domainLength;
+
+    UNREFERENCED_PARAMETER(InMetaValues);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Always permit - this is inspection only
+    ClassifyOut->actionType = FWP_ACTION_CONTINUE;
+
+    if (!LayerData || !Filter || !Filter->context) {
+        return;
+    }
+
+    deviceContext = (PSERENO_DEVICE_CONTEXT)Filter->context;
+    if (!deviceContext->FilteringEnabled || deviceContext->ShuttingDown) {
+        return;
+    }
+
+    streamPacket = (FWPS_STREAM_CALLOUT_IO_PACKET0*)LayerData;
+    if (!streamPacket) {
+        return;
+    }
+
+    streamData = streamPacket->streamData;
+    if (!streamData) {
+        return;
+    }
+
+    // Only inspect outbound data (client -> server, contains ClientHello)
+    flags = streamData->flags;
+    if (!(flags & FWPS_STREAM_FLAG_SEND)) {
+        return;
+    }
+
+    // Get data length
+    dataLength = (UINT32)streamData->dataLength;
+    if (dataLength < 10 || dataLength > 16384) {
+        // Too small for TLS ClientHello or suspiciously large
+        return;
+    }
+
+    // Determine IPv4 or IPv6
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_STREAM_V6);
+
+    // Get addresses and ports
+    if (isIPv6) {
+        FWP_BYTE_ARRAY16* localAddr = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V6_IP_LOCAL_ADDRESS].value.byteArray16;
+        FWP_BYTE_ARRAY16* remoteAddr = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (localAddr) RtlCopyMemory(localAddrV6, localAddr->byteArray16, 16);
+        if (remoteAddr) RtlCopyMemory(remoteAddrV6, remoteAddr->byteArray16, 16);
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V6_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V6_IP_REMOTE_PORT].value.uint16;
+    } else {
+        localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V4_IP_LOCAL_ADDRESS].value.uint32;
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V4_IP_REMOTE_ADDRESS].value.uint32;
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V4_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_STREAM_V4_IP_REMOTE_PORT].value.uint16;
+    }
+
+    // Get the data from NET_BUFFER_LIST
+    netBufferList = streamData->netBufferListChain;
+    if (!netBufferList) {
+        return;
+    }
+
+    netBuffer = NET_BUFFER_LIST_FIRST_NB(netBufferList);
+    if (!netBuffer) {
+        return;
+    }
+
+    // Try to get contiguous data
+    dataBuffer = NdisGetDataBuffer(netBuffer, dataLength, NULL, 1, 0);
+    if (!dataBuffer) {
+        // Data not contiguous - allocate temp buffer
+        allocatedBuffer = ExAllocatePool2(POOL_FLAG_NON_PAGED, dataLength, SERENO_POOL_TAG);
+        if (!allocatedBuffer) {
+            return;
+        }
+        dataBuffer = NdisGetDataBuffer(netBuffer, dataLength, allocatedBuffer, 1, 0);
+        if (!dataBuffer) {
+            ExFreePoolWithTag(allocatedBuffer, SERENO_POOL_TAG);
+            return;
+        }
+    }
+
+    // Parse TLS ClientHello for SNI
+    if (SerenoParseTlsClientHello(dataBuffer, dataLength, domainBuffer, 256, &domainLength)) {
+        if (domainLength > 0) {
+            // Found SNI - add to cache
+            SerenoSniCacheAdd(
+                deviceContext,
+                isIPv6,
+                localAddrV4,
+                isIPv6 ? localAddrV6 : NULL,
+                localPort,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                remotePort,
+                domainBuffer,
+                domainLength
+            );
+            SERENO_DBG("Stream SNI extracted: %S (port %u)", domainBuffer, remotePort);
+        }
+    }
+
+    // Free allocated buffer if any
+    if (allocatedBuffer) {
+        ExFreePoolWithTag(allocatedBuffer, SERENO_POOL_TAG);
+    }
 }
 
 // ============================================================================
