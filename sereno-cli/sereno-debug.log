@@ -1,0 +1,24 @@
+[16:56:26] Got request 22 from MsMpEng.exe (26.160.178.172:443) pid=3912
+[16:56:26] Sent Allow for request 22 (ASK)
+[16:56:26] Got request 23 from vctip.exe (252.15.104.51:443) pid=840
+[16:56:26] Sent Allow for request 23 (ASK)
+[16:56:26] Got request 24 from MsMpEng.exe (26.160.178.172:443) pid=3912
+[16:56:26] Sent Allow for request 24 (ASK)
+[16:56:26] Got request 25 from MsMpEng.exe (26.160.178.172:443) pid=3912
+[16:56:26] Sent Allow for request 25 (ASK)
+[16:56:29] Got request 26 from Code.exe (155.141.79.40:443) pid=9264
+[16:56:29] Sent Allow for request 26 (ASK)
+[16:58:09] Got request 27 from curl.exe (2606:4700:3037::6815:1b3c:80) pid=3668
+[16:58:09] Sent Allow for request 27 (ASK)
+[16:58:27] Got request 28 from curl.exe (2606:4700:3037::6815:1b3c:80) pid=5640
+[16:58:27] Sent Allow for request 28 (ASK)
+[16:58:42] Got request 29 from Code.exe (11.179.89.13:443) pid=9264
+[16:58:42] Sent Allow for request 29 (ASK)
+[16:58:52] Got request 30 from node.exe (2607:6bc0::10:443) pid=11120
+[16:58:52] Sent Allow for request 30 (ASK)
+[17:01:58] Got request 31 from Code.exe (2620:1ec:bdf::40:443) pid=9264
+[17:01:58] Sent Allow for request 31 (ASK)
+[17:02:08] Got request 32 from curl.exe (2606:4700:3037::6815:1b3c:80) pid=11680
+[17:02:08] Sent Allow for request 32 (ASK)
+[17:02:11] Got request 33 from svchost.exe (1.0.0.10:49152) pid=2948
+[17:02:11] Sent Allow for request 33 (ASK)

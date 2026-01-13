@@ -100,8 +100,9 @@ mod windows_impl {
     }
 
     /// Blocked domain request - sent to kernel to add domain to blocklist
+    /// Must match C struct which is inside #pragma pack(push, 1)
     #[repr(C, packed)]
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct DriverBlockedDomainRequest {
         pub domain_name: [u16; 256],
         pub domain_name_length: u32,
@@ -117,12 +118,10 @@ mod windows_impl {
             let chars: Vec<u16> = domain.encode_utf16().collect();
             let len = chars.len().min(255);
 
-            // Copy using addr_of_mut! to avoid unaligned reference issues with packed struct
+            // Copy using raw pointers to avoid unaligned reference issues with packed struct
             unsafe {
                 let dst = std::ptr::addr_of_mut!(request.domain_name) as *mut u16;
-                for (i, &ch) in chars.iter().take(len).enumerate() {
-                    std::ptr::write_unaligned(dst.add(i), ch);
-                }
+                std::ptr::copy_nonoverlapping(chars.as_ptr(), dst, len);
             }
             request.domain_name_length = len as u32;
 

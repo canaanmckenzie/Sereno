@@ -2120,9 +2120,16 @@ SerenoBlockedDomainCheck(
     UINT32 i;
     BOOLEAN blocked = FALSE;
 
-    if (DomainLength == 0 || Context->BlockedDomainCount == 0) {
+    if (DomainLength == 0) {
         return FALSE;
     }
+
+    if (Context->BlockedDomainCount == 0) {
+        SERENO_DBG("BlockedDomainCheck: No blocked domains in list");
+        return FALSE;
+    }
+
+    SERENO_DBG("BlockedDomainCheck: Checking '%S' against %u blocked domains", DomainName, Context->BlockedDomainCount);
 
     KeAcquireSpinLock(&Context->BlockedDomainLock, &oldIrql);
 
@@ -2494,13 +2501,16 @@ SerenoClassifyStream(
             if (SerenoBlockedDomainCheck(deviceContext, domainBuffer, domainLength)) {
                 SERENO_DBG("BLOCKED by SNI: %S", domainBuffer);
 
-                // Block the stream data - this will cause TCP connection to fail
+                // Abort the TCP flow - this kills the connection
+                if (InMetaValues->flowHandle) {
+                    NTSTATUS abortStatus = FwpsFlowAbort0(InMetaValues->flowHandle);
+                    SERENO_DBG("FwpsFlowAbort0 returned: 0x%08X", abortStatus);
+                }
+
+                // Also set stream action to drop
+                streamPacket->streamAction = FWPS_STREAM_ACTION_DROP_CONNECTION;
                 ClassifyOut->actionType = FWP_ACTION_BLOCK;
                 ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
-
-                // Consume the data without sending it (effectively drops the ClientHello)
-                streamPacket->countBytesRequired = 0;
-                streamPacket->streamAction = FWPS_STREAM_ACTION_DROP_CONNECTION;
 
                 // Add to verdict cache so future connections are blocked at ALE layer
                 // Use process ID 0 to match any process going to this domain

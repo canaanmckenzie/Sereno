@@ -78,11 +78,16 @@ fn extract_blocked_domains(rules: &[Rule]) -> Vec<String> {
                 for pattern in patterns {
                     match pattern {
                         DomainPattern::Exact { value } => {
-                            blocked.push(value.clone());
+                            // Strip " (SNI)" suffix if present (added by TUI for display)
+                            let domain = value.trim_end_matches(" (SNI)");
+                            if !domain.is_empty() {
+                                blocked.push(domain.to_string());
+                            }
                         }
                         DomainPattern::Wildcard { pattern } => {
                             // For *.facebook.com, extract facebook.com for suffix matching
                             let domain = pattern.trim_start_matches("*.");
+                            let domain = domain.trim_end_matches(" (SNI)");
                             if !domain.is_empty() {
                                 blocked.push(domain.to_string());
                             }
@@ -96,19 +101,28 @@ fn extract_blocked_domains(rules: &[Rule]) -> Vec<String> {
         }
     }
 
+    // Deduplicate
+    blocked.sort();
+    blocked.dedup();
     blocked
 }
 
 /// Sync blocked domains from rules to kernel blocklist
 fn sync_blocked_domains_to_kernel(handle: &DriverHandle, rules: &[Rule]) -> usize {
-    // First clear existing blocklist
+    // Extract domains first
+    let blocked_domains = extract_blocked_domains(rules);
+
+    // Only clear and sync if we have domains
+    if blocked_domains.is_empty() {
+        return 0;
+    }
+
+    // Clear existing blocklist
     if handle.clear_blocked_domains().is_err() {
         return 0;
     }
 
-    let blocked_domains = extract_blocked_domains(rules);
     let mut synced = 0;
-
     for domain in &blocked_domains {
         if handle.add_blocked_domain(domain).is_ok() {
             synced += 1;
@@ -514,6 +528,14 @@ async fn run_event_loop(
                                             clear_cache_flag.store(true, Ordering::Relaxed);
                                             let status = if !current_enabled { "enabled" } else { "disabled" };
                                             app.log(format!("Rule {} {}", &rule_id[..8.min(rule_id.len())], status));
+
+                                            // Live sync blocked domains to kernel
+                                            if let Some(ref handle) = driver_handle {
+                                                let synced = sync_blocked_domains_to_kernel(handle, &app.rules);
+                                                if synced > 0 {
+                                                    app.log(format!("Synced {} blocked domains to kernel", synced));
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             app.log(format!("Failed to toggle rule: {}", e));
@@ -568,6 +590,16 @@ async fn run_event_loop(
                                             if let Some(conn) = app.connections.get_mut(app.selected_connection) {
                                                 conn.action = action_str.to_string();
                                                 conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                            }
+
+                                            // Live sync blocked domains to kernel (for new DENY rules)
+                                            if new_action == Action::Deny {
+                                                if let Some(ref handle) = driver_handle {
+                                                    let synced = sync_blocked_domains_to_kernel(handle, &app.rules);
+                                                    if synced > 0 {
+                                                        app.log(format!("Synced {} blocked domains to kernel", synced));
+                                                    }
+                                                }
                                             }
                                         }
                                         Err(e) => {
