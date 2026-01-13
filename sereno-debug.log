@@ -947,3 +947,15 @@
 [17:34:35] Sent Allow for request 7 (ASK)
 [17:34:47] Got request 8 from curl.exe (2606:4700:3037::6815:1b3c:443) pid=12920
 [17:34:47] Sent Allow for request 8 (ASK)
+[18:35:37] Got request 2 from Code.exe (2620:1ec:46::40:443) pid=9264
+[18:35:37] Sent Allow for request 2 (ASK)
+[18:36:17] Got request 4 from curl.exe (2607:f8b0:4006:81c::200e:443) pid=13832
+[18:36:17] Sent Block for request 4 (DENY)
+[18:36:33] Got request 5 from curl.exe (2606:4700:3037::ac43:a907:443) pid=13576
+[18:36:33] Sent Allow for request 5 (ASK)
+[18:36:40] Got request 6 from curl.exe (2606:4700:3037::ac43:a907:443) pid=13612
+[18:36:40] Sent Allow for request 6 (ASK)
+[18:37:22] Got request 7 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:22] Sent Allow for request 7 (ASK)
+[18:37:22] Got request 8 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:22] Sent Allow for request 8 (ASK)
