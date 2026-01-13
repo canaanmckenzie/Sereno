@@ -33,6 +33,7 @@ mod windows_impl {
     const IOCTL_SERENO_GET_PENDING: u32 = ctl_code(FILE_DEVICE_SERENO, 0x801, METHOD_BUFFERED, FILE_READ_ACCESS);
     const IOCTL_SERENO_SET_VERDICT: u32 = ctl_code(FILE_DEVICE_SERENO, 0x802, METHOD_BUFFERED, FILE_WRITE_ACCESS);
     const IOCTL_SERENO_ENABLE: u32 = ctl_code(FILE_DEVICE_SERENO, 0x805, METHOD_BUFFERED, FILE_WRITE_ACCESS);
+    const IOCTL_SERENO_GET_SNI: u32 = ctl_code(FILE_DEVICE_SERENO, 0x807, METHOD_BUFFERED, FILE_READ_ACCESS);
 
     #[repr(u32)]
     #[derive(Debug, Clone, Copy)]
@@ -69,6 +70,64 @@ mod windows_impl {
         pub request_id: u64,
         pub verdict: u32,
         pub reserved: u32,
+    }
+
+    /// Raw SNI notification from driver
+    #[repr(C, packed)]
+    #[derive(Clone)]
+    pub struct DriverSniNotification {
+        pub timestamp: u64,
+        pub process_id: u32,
+        pub ip_version: u8,
+        pub reserved: [u8; 3],
+        pub remote_address_v4: u32,
+        pub remote_address_v6: [u8; 16],
+        pub local_port: u16,
+        pub remote_port: u16,
+        pub domain_name: [u16; 256],
+        pub domain_name_length: u32,
+    }
+
+    /// Parsed SNI notification
+    #[derive(Debug, Clone)]
+    pub struct SniNotification {
+        pub remote_address: IpAddr,
+        pub local_port: u16,
+        pub remote_port: u16,
+        pub domain: String,
+    }
+
+    impl DriverSniNotification {
+        pub fn parse(&self) -> SniNotification {
+            let ip_version = self.ip_version;
+            let remote_v4 = self.remote_address_v4;
+            let remote_v6 = self.remote_address_v6;
+            let local_port = self.local_port;
+            let remote_port = self.remote_port;
+            let domain_len = self.domain_name_length;
+
+            let mut domain_buf = [0u16; 256];
+            unsafe {
+                let domain_ptr = std::ptr::addr_of!(self.domain_name) as *const u16;
+                std::ptr::copy_nonoverlapping(domain_ptr, domain_buf.as_mut_ptr(), 256);
+            }
+
+            let remote_address = if ip_version == 6 {
+                IpAddr::V6(Ipv6Addr::from(remote_v6))
+            } else {
+                IpAddr::V4(Ipv4Addr::from(u32::from_be(remote_v4)))
+            };
+
+            let domain_name_len = (domain_len as usize).min(256);
+            let domain = String::from_utf16_lossy(&domain_buf[..domain_name_len]);
+
+            SniNotification {
+                remote_address,
+                local_port,
+                remote_port,
+                domain,
+            }
+        }
     }
 
     /// Parsed connection request
@@ -284,6 +343,43 @@ mod windows_impl {
                 Err(io::Error::last_os_error())
             }
         }
+
+        /// Get next SNI notification from driver (extracted from TLS ClientHello)
+        pub fn get_sni(&self) -> io::Result<Option<SniNotification>> {
+            let mut notification: DriverSniNotification = unsafe { mem::zeroed() };
+            let mut bytes_returned = 0u32;
+
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    IOCTL_SERENO_GET_SNI,
+                    None,
+                    0,
+                    Some(&mut notification as *mut _ as *mut _),
+                    mem::size_of::<DriverSniNotification>() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            if result.is_ok() {
+                if bytes_returned >= mem::size_of::<DriverSniNotification>() as u32 {
+                    Ok(Some(notification.parse()))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                let err = io::Error::last_os_error();
+                // STATUS_NO_MORE_ENTRIES = 0x8000001A = 2147483674 decimal
+                // But Windows returns it as NTSTATUS which maps to error code 259 (ERROR_NO_MORE_ITEMS)
+                // or raw NTSTATUS 0x8000001A
+                if err.raw_os_error() == Some(259) || err.raw_os_error() == Some(0x1A) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
     }
 
     impl Drop for DriverHandle {
@@ -330,6 +426,14 @@ pub mod stub {
         pub domain: Option<String>,
     }
 
+    #[derive(Debug, Clone)]
+    pub struct SniNotification {
+        pub remote_address: IpAddr,
+        pub local_port: u16,
+        pub remote_port: u16,
+        pub domain: String,
+    }
+
     pub struct DriverHandle;
 
     impl DriverHandle {
@@ -351,6 +455,10 @@ pub mod stub {
 
         pub fn set_verdict(&self, _request_id: u64, _verdict: DriverVerdict) -> io::Result<()> {
             Ok(())
+        }
+
+        pub fn get_sni(&self) -> io::Result<Option<SniNotification>> {
+            Ok(None)
         }
     }
 }

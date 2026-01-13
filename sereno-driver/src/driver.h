@@ -71,6 +71,7 @@ DEFINE_GUID(GUID_NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 #define IOCTL_SERENO_SET_RULES      CTL_CODE(FILE_DEVICE_SERENO, 0x804, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_ENABLE         CTL_CODE(FILE_DEVICE_SERENO, 0x805, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_DISABLE        CTL_CODE(FILE_DEVICE_SERENO, 0x806, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define IOCTL_SERENO_GET_SNI        CTL_CODE(FILE_DEVICE_SERENO, 0x807, METHOD_BUFFERED, FILE_READ_ACCESS)
 
 // Verdict values
 typedef enum _SERENO_VERDICT {
@@ -141,6 +142,21 @@ typedef struct _SERENO_STATS {
     UINT64      DroppedRequests;
 } SERENO_STATS, *PSERENO_STATS;
 
+// SNI notification - sent to usermode when SNI is extracted from TLS ClientHello
+// Allows TUI to update display with real domain name after connection is established
+typedef struct _SERENO_SNI_NOTIFICATION {
+    UINT64      Timestamp;
+    UINT32      ProcessId;          // Process that made the connection
+    UINT8       IpVersion;          // 4 or 6
+    UINT8       Reserved[3];
+    UINT32      RemoteAddressV4;    // Remote IP (for matching)
+    UINT8       RemoteAddressV6[16];
+    UINT16      LocalPort;          // Local port (for matching)
+    UINT16      RemotePort;         // Remote port (for matching)
+    WCHAR       DomainName[256];    // Extracted SNI domain
+    UINT32      DomainNameLength;   // Length in characters
+} SERENO_SNI_NOTIFICATION, *PSERENO_SNI_NOTIFICATION;
+
 #pragma pack(pop)
 
 // DNS cache entry (internal) - maps IP addresses to domain names
@@ -159,6 +175,9 @@ typedef struct _DNS_CACHE_ENTRY {
 // Value: Domain name from SNI extension
 #define MAX_SNI_CACHE_ENTRIES   512
 #define SNI_CACHE_TTL_100NS     (60LL * 1000 * 10000)  // 60 seconds in 100ns units
+
+// SNI notification queue - ring buffer for notifying usermode of extracted SNI
+#define MAX_SNI_NOTIFICATIONS   64
 
 // SNI cache entry - maps connection 5-tuple to domain from TLS ClientHello
 typedef struct _SNI_CACHE_ENTRY {
@@ -256,6 +275,12 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     // SNI cache - maps connection 5-tuple to domain from TLS ClientHello
     SNI_CACHE_ENTRY SniCache[MAX_SNI_CACHE_ENTRIES];
     KSPIN_LOCK      SniCacheLock;
+
+    // SNI notification queue - ring buffer for sending SNI to usermode
+    SERENO_SNI_NOTIFICATION SniNotifications[MAX_SNI_NOTIFICATIONS];
+    UINT32          SniNotifyHead;      // Next slot to write
+    UINT32          SniNotifyTail;      // Next slot to read
+    KSPIN_LOCK      SniNotifyLock;
 
     // Statistics
     SERENO_STATS    Stats;
@@ -375,6 +400,10 @@ BOOLEAN SerenoVerdictCacheLookupByAddress(_In_ PSERENO_DEVICE_CONTEXT Context, _
 // SNI cache management (stores domain from TLS ClientHello)
 VOID SerenoSniCacheAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 LocalIpV4, _In_opt_ const UINT8* LocalIpV6, _In_ UINT16 LocalPort, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _In_ PCWSTR DomainName, _In_ UINT32 DomainLength);
 BOOLEAN SerenoSniCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 LocalIpV4, _In_opt_ const UINT8* LocalIpV6, _In_ UINT16 LocalPort, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 RemotePort, _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer, _In_ UINT32 DomainBufferLength, _Out_ PUINT32 DomainLength);
+
+// SNI notification queue - notify usermode about extracted SNI
+VOID SerenoSniNotifyAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 LocalPort, _In_ UINT16 RemotePort, _In_ PCWSTR DomainName, _In_ UINT32 DomainLength);
+BOOLEAN SerenoSniNotifyGet(_In_ PSERENO_DEVICE_CONTEXT Context, _Out_ PSERENO_SNI_NOTIFICATION Notification);
 
 // TLS ClientHello parsing for SNI extraction
 BOOLEAN SerenoParseTlsClientHello(_In_ const UINT8* Data, _In_ UINT32 DataLength, _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer, _In_ UINT32 DomainBufferLength, _Out_ PUINT32 DomainLength);

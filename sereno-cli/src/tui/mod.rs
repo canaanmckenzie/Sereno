@@ -139,7 +139,7 @@ async fn run_async(db_path: &Path) -> Result<()> {
     app.log(format!("Mode: {}", app.mode.label()));
 
     // Create channel for driver events
-    let (conn_tx, mut conn_rx) = mpsc::channel::<DriverConnectionEvent>(100);
+    let (conn_tx, mut conn_rx) = mpsc::channel::<DriverEvent>(100);
 
     // Start driver polling task if driver is available
     let driver_handle = if app.driver_status == DriverStatus::Running {
@@ -191,10 +191,19 @@ async fn run_async(db_path: &Path) -> Result<()> {
 }
 
 /// Event from driver polling
-struct DriverConnectionEvent {
-    request_id: u64,
-    event: ConnectionEvent,
-    verdict: EvalResult,
+enum DriverEvent {
+    /// New connection with verdict
+    Connection {
+        request_id: u64,
+        event: ConnectionEvent,
+        verdict: EvalResult,
+    },
+    /// SNI update for existing connection (domain extracted from TLS ClientHello)
+    SniUpdate {
+        remote_address: String,
+        port: u16,
+        domain: String,
+    },
 }
 
 /// Driver polling loop - runs in background task
@@ -202,7 +211,7 @@ async fn driver_poll_loop(
     handle: Arc<DriverHandle>,
     engine: Arc<RuleEngine>,
     domain_cache: Arc<RwLock<DomainCache>>,
-    tx: mpsc::Sender<DriverConnectionEvent>,
+    tx: mpsc::Sender<DriverEvent>,
     clear_cache_flag: Arc<AtomicBool>,
 ) {
     use std::collections::HashMap;
@@ -331,6 +340,7 @@ async fn driver_poll_loop(
                         process_name: req.process_name,
                         process_id: req.process_id,
                         destination: domain.clone().unwrap_or_else(|| req.remote_address.to_string()),
+                        remote_address: req.remote_address.to_string(),
                         port: req.remote_port,
                         protocol: format!("{:?}", req.protocol),
                         rule_name: match &verdict {
@@ -348,7 +358,7 @@ async fn driver_poll_loop(
                     };
 
                     // Send to UI
-                    let _ = tx.send(DriverConnectionEvent {
+                    let _ = tx.send(DriverEvent::Connection {
                         request_id: req.request_id,
                         event,
                         verdict,
@@ -360,8 +370,23 @@ async fn driver_poll_loop(
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             Ok(None) => {
-                // No pending requests, sleep longer
-                // (debug commented out to reduce noise)
+                // No pending connection requests - check for SNI updates
+                // Poll all available SNI notifications (drain the queue)
+                loop {
+                    match handle.get_sni() {
+                        Ok(Some(sni)) => {
+                            // Send SNI update to UI
+                            let _ = tx.send(DriverEvent::SniUpdate {
+                                remote_address: sni.remote_address.to_string(),
+                                port: sni.remote_port,
+                                domain: sni.domain,
+                            }).await;
+                        }
+                        Ok(None) => break, // No more SNI notifications
+                        Err(_) => break,   // Error, stop polling
+                    }
+                }
+                // Sleep before next poll cycle
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             Err(_) => {
@@ -376,7 +401,7 @@ async fn driver_poll_loop(
 async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-    conn_rx: &mut mpsc::Receiver<DriverConnectionEvent>,
+    conn_rx: &mut mpsc::Receiver<DriverEvent>,
     driver_handle: Option<Arc<DriverHandle>>,
     engine: Arc<RuleEngine>,
     clear_cache_flag: Arc<AtomicBool>,
@@ -499,11 +524,26 @@ async fn run_event_loop(
                 }
             }
 
-            // Check for driver connection events
+            // Check for driver events (connections and SNI updates)
             Some(driver_event) = conn_rx.recv() => {
-                // ASK connections are auto-allowed now (no blocking)
-                // pending_ask is no longer used since we don't block waiting for user
-                app.add_connection(driver_event.event);
+                match driver_event {
+                    DriverEvent::Connection { event, .. } => {
+                        // ASK connections are auto-allowed now (no blocking)
+                        app.add_connection(event);
+                    }
+                    DriverEvent::SniUpdate { remote_address, port, domain } => {
+                        // Update existing connection(s) with SNI domain
+                        // Match by remote IP and port
+                        for conn in app.connections.iter_mut() {
+                            if conn.remote_address == remote_address && conn.port == port {
+                                // Only update if destination is still showing IP (no domain yet)
+                                if conn.destination == remote_address {
+                                    conn.destination = format!("{} (SNI)", domain);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -582,6 +622,7 @@ fn add_demo_connections(app: &mut App) {
             process_name: "curl.exe".to_string(),
             process_id: 7892,
             destination: "google.com".to_string(),
+            remote_address: "142.250.80.46".to_string(),
             port: 443,
             protocol: "Tcp".to_string(),
             rule_name: None,
@@ -594,6 +635,7 @@ fn add_demo_connections(app: &mut App) {
             process_name: "Code.exe".to_string(),
             process_id: 10860,
             destination: "github.com".to_string(),
+            remote_address: "140.82.114.4".to_string(),
             port: 443,
             protocol: "Tcp".to_string(),
             rule_name: None,
@@ -606,6 +648,7 @@ fn add_demo_connections(app: &mut App) {
             process_name: "telemetry.exe".to_string(),
             process_id: 4024,
             destination: "telemetry.microsoft.com".to_string(),
+            remote_address: "13.107.4.52".to_string(),
             port: 443,
             protocol: "Tcp".to_string(),
             rule_name: Some("Block Telemetry".to_string()),
@@ -618,6 +661,7 @@ fn add_demo_connections(app: &mut App) {
             process_name: "node.exe".to_string(),
             process_id: 12816,
             destination: "localhost".to_string(),
+            remote_address: "127.0.0.1".to_string(),
             port: 50073,
             protocol: "Tcp".to_string(),
             rule_name: Some("Allow Local".to_string()),
@@ -630,6 +674,7 @@ fn add_demo_connections(app: &mut App) {
             process_name: "svchost.exe".to_string(),
             process_id: 1234,
             destination: "windowsupdate.com".to_string(),
+            remote_address: "13.107.4.50".to_string(),
             port: 443,
             protocol: "Tcp".to_string(),
             rule_name: Some("Allow WU".to_string()),

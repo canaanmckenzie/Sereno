@@ -107,6 +107,8 @@ pub struct ConnectionEvent {
     pub process_name: String,
     pub process_id: u32,
     pub destination: String,
+    /// Raw remote IP address (for matching SNI updates)
+    pub remote_address: String,
     pub port: u16,
     pub protocol: String,
     pub rule_name: Option<String>,

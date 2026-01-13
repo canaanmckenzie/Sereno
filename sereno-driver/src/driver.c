@@ -234,6 +234,12 @@ DriverEntry(
     RtlZeroMemory(deviceContext->SniCache, sizeof(deviceContext->SniCache));
     KeInitializeSpinLock(&deviceContext->SniCacheLock);
 
+    // Initialize SNI notification queue (for sending SNI to usermode)
+    RtlZeroMemory(deviceContext->SniNotifications, sizeof(deviceContext->SniNotifications));
+    deviceContext->SniNotifyHead = 0;
+    deviceContext->SniNotifyTail = 0;
+    KeInitializeSpinLock(&deviceContext->SniNotifyLock);
+
     // Create symbolic link
     status = WdfDeviceCreateSymbolicLink(g_ControlDevice, &symlinkName);
     if (!NT_SUCCESS(status)) {
@@ -469,6 +475,29 @@ SerenoEvtIoDeviceControl(
     {
         deviceContext->FilteringEnabled = FALSE;
         SERENO_DBG("Filtering disabled\n");
+        break;
+    }
+
+    case IOCTL_SERENO_GET_SNI:
+    {
+        // Return next SNI notification from queue
+        PSERENO_SNI_NOTIFICATION outNotification;
+
+        status = WdfRequestRetrieveOutputBuffer(Request, sizeof(SERENO_SNI_NOTIFICATION), &outputBuffer, NULL);
+        if (!NT_SUCCESS(status)) {
+            break;
+        }
+
+        outNotification = (PSERENO_SNI_NOTIFICATION)outputBuffer;
+
+        if (SerenoSniNotifyGet(deviceContext, outNotification)) {
+            bytesReturned = sizeof(SERENO_SNI_NOTIFICATION);
+            status = STATUS_SUCCESS;
+        } else {
+            // No notifications in queue
+            status = STATUS_NO_MORE_ENTRIES;
+            bytesReturned = 0;
+        }
         break;
     }
 
@@ -1863,6 +1892,95 @@ SerenoSniCacheLookup(
 }
 
 // ============================================================================
+// SNI Notification Queue - Notify usermode about extracted SNI
+// ============================================================================
+
+/*
+ * SerenoSniNotifyAdd - Add SNI notification to queue for usermode
+ * Ring buffer: overwrites oldest if full
+ */
+VOID
+SerenoSniNotifyAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 RemoteIpV4,
+    _In_opt_ const UINT8* RemoteIpV6,
+    _In_ UINT16 LocalPort,
+    _In_ UINT16 RemotePort,
+    _In_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength
+)
+{
+    KIRQL oldIrql;
+    UINT32 slot;
+
+    if (DomainLength == 0 || DomainName == NULL) {
+        return;
+    }
+
+    KeAcquireSpinLock(&Context->SniNotifyLock, &oldIrql);
+
+    // Use head as write slot (ring buffer)
+    slot = Context->SniNotifyHead;
+    Context->SniNotifyHead = (Context->SniNotifyHead + 1) % MAX_SNI_NOTIFICATIONS;
+
+    // If head catches tail, advance tail (drop oldest)
+    if (Context->SniNotifyHead == Context->SniNotifyTail) {
+        Context->SniNotifyTail = (Context->SniNotifyTail + 1) % MAX_SNI_NOTIFICATIONS;
+    }
+
+    // Fill notification
+    RtlZeroMemory(&Context->SniNotifications[slot], sizeof(SERENO_SNI_NOTIFICATION));
+    Context->SniNotifications[slot].Timestamp = KeQueryInterruptTime();
+    Context->SniNotifications[slot].IpVersion = IsIPv6 ? 6 : 4;
+    Context->SniNotifications[slot].LocalPort = LocalPort;
+    Context->SniNotifications[slot].RemotePort = RemotePort;
+
+    if (IsIPv6 && RemoteIpV6) {
+        RtlCopyMemory(Context->SniNotifications[slot].RemoteAddressV6, RemoteIpV6, 16);
+    } else {
+        Context->SniNotifications[slot].RemoteAddressV4 = RemoteIpV4;
+    }
+
+    UINT32 copyLen = min(DomainLength, 255);
+    RtlCopyMemory(Context->SniNotifications[slot].DomainName, DomainName, copyLen * sizeof(WCHAR));
+    Context->SniNotifications[slot].DomainName[copyLen] = L'\0';
+    Context->SniNotifications[slot].DomainNameLength = copyLen;
+
+    KeReleaseSpinLock(&Context->SniNotifyLock, oldIrql);
+
+    SERENO_DBG("SNI Notify ADD: port=%u domain=%S", RemotePort, DomainName);
+}
+
+/*
+ * SerenoSniNotifyGet - Get next SNI notification from queue
+ * Returns FALSE if queue is empty
+ */
+BOOLEAN
+SerenoSniNotifyGet(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _Out_ PSERENO_SNI_NOTIFICATION Notification
+)
+{
+    KIRQL oldIrql;
+    BOOLEAN hasData = FALSE;
+
+    RtlZeroMemory(Notification, sizeof(SERENO_SNI_NOTIFICATION));
+
+    KeAcquireSpinLock(&Context->SniNotifyLock, &oldIrql);
+
+    if (Context->SniNotifyTail != Context->SniNotifyHead) {
+        // Queue has data
+        RtlCopyMemory(Notification, &Context->SniNotifications[Context->SniNotifyTail], sizeof(SERENO_SNI_NOTIFICATION));
+        Context->SniNotifyTail = (Context->SniNotifyTail + 1) % MAX_SNI_NOTIFICATIONS;
+        hasData = TRUE;
+    }
+
+    KeReleaseSpinLock(&Context->SniNotifyLock, oldIrql);
+    return hasData;
+}
+
+// ============================================================================
 // TLS ClientHello Parsing - Extract SNI from TLS handshake
 // ============================================================================
 
@@ -2077,40 +2195,48 @@ SerenoClassifyStream(
 
     UNREFERENCED_PARAMETER(InMetaValues);
     UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
     UNREFERENCED_PARAMETER(FlowContext);
 
     // Always permit - this is inspection only
     ClassifyOut->actionType = FWP_ACTION_CONTINUE;
 
-    if (!LayerData || !Filter || !Filter->context) {
+    // Use global device context (same as ALE classify)
+    deviceContext = g_DeviceContext;
+
+    if (!LayerData || !deviceContext) {
         return;
     }
 
-    deviceContext = (PSERENO_DEVICE_CONTEXT)Filter->context;
     if (!deviceContext->FilteringEnabled || deviceContext->ShuttingDown) {
         return;
     }
 
     streamPacket = (FWPS_STREAM_CALLOUT_IO_PACKET0*)LayerData;
     if (!streamPacket) {
+        SERENO_DBG("STREAM: Early return - no streamPacket");
         return;
     }
 
     streamData = streamPacket->streamData;
     if (!streamData) {
+        SERENO_DBG("STREAM: Early return - no streamData");
         return;
     }
 
     // Only inspect outbound data (client -> server, contains ClientHello)
     flags = streamData->flags;
     if (!(flags & FWPS_STREAM_FLAG_SEND)) {
+        SERENO_DBG("STREAM: Not outbound (flags=0x%X), skipping", flags);
         return;
     }
 
     // Get data length
     dataLength = (UINT32)streamData->dataLength;
+    SERENO_DBG("STREAM: Outbound data len=%u", dataLength);
     if (dataLength < 10 || dataLength > 16384) {
         // Too small for TLS ClientHello or suspiciously large
+        SERENO_DBG("STREAM: Data length out of range (%u), skipping", dataLength);
         return;
     }
 
@@ -2174,6 +2300,19 @@ SerenoClassifyStream(
                 domainBuffer,
                 domainLength
             );
+
+            // Also notify usermode for TUI display update
+            SerenoSniNotifyAdd(
+                deviceContext,
+                isIPv6,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                localPort,
+                remotePort,
+                domainBuffer,
+                domainLength
+            );
+
             SERENO_DBG("Stream SNI extracted: %S (port %u)", domainBuffer, remotePort);
         }
     }

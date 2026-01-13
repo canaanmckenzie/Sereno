@@ -363,3 +363,115 @@
 [13:49:04] Sent Allow for request 101 (ASK)
 [13:49:15] Got request 102 from node.exe (2607:6bc0::10:443) pid=8696
 [13:49:15] Sent Allow for request 102 (ASK)
+[14:46:52] Got request 2 from curl.exe (2607:f8b0:4006:800::200e:443) pid=5588
+[14:46:52] Sent Allow for request 2 (ASK)
+[14:46:59] Got request 3 from curl.exe (2607:f8b0:4006:800::200e:80) pid=5920
+[14:46:59] Sent Allow for request 3 (ASK)
+[14:47:03] Got request 4 from curl.exe (2606:7100:1:67::26:80) pid=9104
+[14:47:03] Sent Allow for request 4 (ASK)
+[14:47:06] Got request 5 from pwsh.exe (59.73.179.52:443) pid=11784
+[14:47:06] Sent Allow for request 5 (ASK)
+[14:47:14] Got request 6 from curl.exe (2606:7100:1:67::26:443) pid=9444
+[14:47:14] Sent Allow for request 6 (ASK)
+[14:47:42] Got request 7 from Code.exe (7.173.189.20:443) pid=9264
+[14:47:42] Sent Allow for request 7 (ASK)
+[14:47:58] Got request 8 from curl.exe (2607:f8b0:4006:800::200e:443) pid=12268
+[14:47:58] Sent Allow for request 8 (ASK)
+[14:48:47] Got request 9 from node.exe (2607:6bc0::10:443) pid=9412
+[14:48:47] Sent Allow for request 9 (ASK)
+[14:48:52] Got request 10 from Code.exe (2620:1ec:48:1::40:443) pid=9264
+[14:48:52] Sent Allow for request 10 (ASK)
+[14:49:54] Got request 12 from OneDrive.exe (104.193.132.51:443) pid=10092
+[14:49:54] Sent Allow for request 12 (ASK)
+[14:49:55] Got request 13 from Code.exe (93.5.107.13:443) pid=9264
+[14:49:55] Sent Allow for request 13 (ASK)
+[14:50:05] Got request 14 from node.exe (2607:6bc0::10:443) pid=9412
+[14:50:05] Sent Allow for request 14 (ASK)
+[14:50:22] Got request 15 from Code.exe (2620:1ec:46::40:443) pid=9264
+[14:50:22] Sent Allow for request 15 (ASK)
+[14:50:24] Got request 16 from node.exe (2607:6bc0::10:443) pid=9412
+[14:50:24] Sent Allow for request 16 (ASK)
+[14:53:28] Got request 17 from svchost.exe (1.0.0.10:49152) pid=4796
+[14:53:28] Sent Allow for request 17 (ASK)
+[14:53:50] Got request 18 from vctip.exe (26.73.42.20:443) pid=9960
+[14:53:50] Sent Allow for request 18 (ASK)
+[14:53:52] Got request 19 from Code.exe (2620:1ec:46::40:443) pid=9264
+[14:53:52] Sent Allow for request 19 (ASK)
+[14:54:10] Got request 20 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec49:443) pid=9060
+[14:54:10] Sent Allow for request 20 (ASK)
+[14:54:10] Got request 21 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec49:443) pid=9060
+[14:54:10] Sent Allow for request 21 (ASK)
+[14:54:10] Got request 22 from BackgroundDownload.exe (2600:1401:d000:283::2c1a:443) pid=9060
+[14:54:10] Sent Allow for request 22 (ASK)
+[14:54:10] Got request 23 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec49:443) pid=9060
+[14:54:10] Sent Allow for request 23 (ASK)
+[14:54:10] Got request 24 from BackgroundDownload.exe (2600:1401:d000:283::2c1a:443) pid=9060
+[14:54:10] Sent Allow for request 24 (ASK)
+[14:54:10] Got request 25 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec57:443) pid=9060
+[14:54:10] Sent Allow for request 25 (ASK)
+[14:54:20] Got request 26 from vctip.exe (106.246.116.51:443) pid=6944
+[14:54:20] Sent Allow for request 26 (ASK)
+[14:55:02] Got request 2 from curl.exe (2607:f8b0:4006:811::200e:443) pid=116
+[14:55:02] Sent Allow for request 2 (ASK)
+[14:55:16] Got request 3 from node.exe (2606:4700::6810:622:443) pid=8308
+[14:55:16] Sent Allow for request 3 (ASK)
+[14:55:16] Got request 4 from curl.exe (2607:f8b0:4006:811::200e:443) pid=1452
+[14:55:16] Sent Allow for request 4 (ASK)
+[14:55:17] Got request 5 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 5 (ASK)
+[14:55:17] Got request 6 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 6 (ASK)
+[14:55:17] Got request 7 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 7 (ASK)
+[14:55:17] Got request 8 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 8 (ASK)
+[14:55:17] Got request 9 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 9 (ASK)
+[14:55:17] Got request 10 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 10 (ASK)
+[14:55:17] Got request 11 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 11 (ASK)
+[14:55:17] Got request 12 from node.exe (2606:4700::6810:622:443) pid=2120
+[14:55:17] Sent Allow for request 12 (ASK)
+[14:55:22] Got request 13 from vctip.exe (11.173.189.20:443) pid=8216
+[14:55:22] Sent Allow for request 13 (ASK)
+[14:55:23] Got request 16 from node.exe (2607:6bc0::10:443) pid=9412
+[14:55:23] Sent Allow for request 16 (ASK)
+[14:56:07] Got request 17 from pwsh.exe (52.73.179.52:443) pid=11784
+[14:56:07] Sent Allow for request 17 (ASK)
+[14:56:35] Got request 18 from Code.exe (14.173.189.20:443) pid=9264
+[14:56:35] Sent Allow for request 18 (ASK)
+[14:56:35] Got request 19 from node.exe (2607:6bc0::10:443) pid=9412
+[14:56:35] Sent Allow for request 19 (ASK)
+[14:59:29] Got request 2 from curl.exe (2607:f8b0:4006:820::200e:443) pid=4764
+[14:59:29] Sent Allow for request 2 (ASK)
+[14:59:51] Got request 5 from curl.exe (2606:7100:1:67::26:80) pid=8540
+[14:59:51] Sent Allow for request 5 (ASK)
+[15:00:05] Got request 7 from curl.exe (2607:f8b0:4006:820::200e:80) pid=4920
+[15:00:05] Sent Allow for request 7 (ASK)
+[15:00:16] Got request 9 from curl.exe (2607:f8b0:4006:820::200e:80) pid=5804
+[15:00:16] Sent Block for request 9 (DENY)
+[15:00:22] Got request 10 from curl.exe (2607:f8b0:4006:820::200e:443) pid=9664
+[15:00:22] Sent Block for request 10 (DENY)
+[15:00:52] Got request 11 from Code.exe (168.117.168.52:443) pid=9264
+[15:00:52] Sent Allow for request 11 (ASK)
+[15:01:58] Got request 13 from node.exe (2607:6bc0::10:443) pid=9412
+[15:01:58] Sent Allow for request 13 (ASK)
+[15:03:53] Got request 14 from Code.exe (2620:1ec:46::40:443) pid=9264
+[15:03:53] Sent Allow for request 14 (ASK)
+[15:06:01] Got request 15 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec45:443) pid=8556
+[15:06:01] Sent Allow for request 15 (ASK)
+[15:06:01] Got request 16 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec45:443) pid=8556
+[15:06:01] Sent Allow for request 16 (ASK)
+[15:06:01] Got request 17 from BackgroundDownload.exe (2600:1401:d000:28d::2c1a:443) pid=8556
+[15:06:01] Sent Allow for request 17 (ASK)
+[15:06:01] Got request 18 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec57:443) pid=8556
+[15:06:01] Sent Allow for request 18 (ASK)
+[15:06:01] Got request 19 from BackgroundDownload.exe (2600:1401:d000:13::17dd:ec45:443) pid=8556
+[15:06:01] Sent Allow for request 19 (ASK)
+[15:06:34] Got request 20 from vctip.exe (211.143.182.52:443) pid=8216
+[15:06:34] Sent Allow for request 20 (ASK)
+[15:07:08] Got request 21 from svchost.exe (2a04:4e42:4e::684:80) pid=1508
+[15:07:08] Sent Allow for request 21 (ASK)
+[15:08:02] Got request 22 from Code.exe (2620:1ec:bdf::40:443) pid=9264
+[15:08:02] Sent Allow for request 22 (ASK)
