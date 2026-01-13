@@ -38,7 +38,13 @@ $ErrorActionPreference = "Stop"
 $exe = ".\target\x86_64-pc-windows-msvc\release\sereno.exe"
 $driverSrc = ".\sereno-driver\bin\x64\Release\SerenoFilter.sys"
 $driverDst = "C:\Windows\System32\drivers\SerenoFilter.sys"
-$certThumbprint = "1DC360B0502EDDBF7424ADF0D18EEDB70904523F"
+# Certificate thumbprint - set via environment variable SERENO_CERT_THUMBPRINT
+$certThumbprint = $env:SERENO_CERT_THUMBPRINT
+if (-not $certThumbprint) {
+    Write-Host "ERROR: SERENO_CERT_THUMBPRINT environment variable not set." -ForegroundColor Red
+    Write-Host "Set it with: `$env:SERENO_CERT_THUMBPRINT = 'YOUR_THUMBPRINT'" -ForegroundColor Yellow
+    exit 1
+}
 $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
 $serviceName = "SerenoFilter"
 
