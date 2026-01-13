@@ -18,6 +18,14 @@ pub enum EventResult {
     ToggleRule(String),
     /// Delete a rule
     DeleteRule(String),
+    /// Delete multiple selected rules (bulk delete)
+    DeleteSelectedRules(Vec<String>),
+    /// Toggle selection on current rule
+    ToggleRuleSelection(String),
+    /// Select all rules
+    SelectAllRules,
+    /// Clear rule selection
+    ClearRuleSelection,
     /// Toggle a connection's verdict (create rule with opposite action)
     /// Contains: (process_name, destination/domain, port, current_action)
     ToggleConnection {
@@ -174,15 +182,40 @@ fn handle_rules_key(app: &mut App, key: KeyEvent) -> EventResult {
                 return EventResult::ToggleRule(rule_id);
             }
         }
-        KeyCode::Char('d') | KeyCode::Delete => {
-            // TODO: Delete rule (with confirmation)
-            if let Some(rule) = app.selected_rule_item() {
-                app.log(format!("Delete rule: {}", rule.name));
+        KeyCode::Char('D') => {
+            // Bulk delete - delete all selected rules (Shift+D)
+            if !app.selected_rules.is_empty() {
+                let selected: Vec<String> = app.selected_rules.iter().cloned().collect();
+                return EventResult::DeleteSelectedRules(selected);
+            } else if let Some(rule) = app.selected_rule_item() {
+                // No selection, delete current rule
+                let rule_id = rule.id.clone();
+                return EventResult::DeleteRule(rule_id);
             }
         }
-        KeyCode::Char('a') | KeyCode::Char('A') => {
-            // TODO: Add new rule
-            app.log("Add new rule...".to_string());
+        KeyCode::Char('d') | KeyCode::Delete => {
+            // Delete single selected rule
+            if let Some(rule) = app.selected_rule_item() {
+                let rule_id = rule.id.clone();
+                return EventResult::DeleteRule(rule_id);
+            }
+        }
+        KeyCode::Char(' ') => {
+            // Toggle selection on current rule
+            if let Some(rule) = app.selected_rule_item() {
+                let rule_id = rule.id.clone();
+                return EventResult::ToggleRuleSelection(rule_id);
+            }
+        }
+        KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Select all rules (Ctrl+A)
+            return EventResult::SelectAllRules;
+        }
+        KeyCode::Esc => {
+            // Clear selection
+            if !app.selected_rules.is_empty() {
+                return EventResult::ClearRuleSelection;
+            }
         }
         _ => {}
     }

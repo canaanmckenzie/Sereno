@@ -1,7 +1,7 @@
 //! TUI Application State
 
 use sereno_core::types::Rule;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 /// Active tab in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -146,6 +146,9 @@ pub struct App {
     /// Currently selected rule index
     pub selected_rule: usize,
 
+    /// Selected rule IDs for bulk operations
+    pub selected_rules: HashSet<String>,
+
     /// Log messages
     pub logs: VecDeque<String>,
 
@@ -180,6 +183,7 @@ impl Default for App {
             selected_connection: 0,
             rules: Vec::new(),
             selected_rule: 0,
+            selected_rules: HashSet::new(),
             logs: VecDeque::with_capacity(1000),
             max_logs: 1000,
             pending_ask: None,

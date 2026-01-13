@@ -188,23 +188,26 @@ fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the Rules tab
 fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
-    let header_cells = ["Name", "Action", "Enabled", "Priority", "Hits"]
+    let header_cells = ["Sel", "Name", "Action", "Enabled", "Priority", "Hits"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
 
     let header = Row::new(header_cells).height(1);
 
     let rows: Vec<Row> = app.rules.iter().enumerate().map(|(i, rule)| {
-        let selected = i == app.selected_rule;
+        let cursor_selected = i == app.selected_rule;
+        let multi_selected = app.selected_rules.contains(&rule.id);
 
-        // Base styles
-        let row_style = if selected {
+        // Base styles - highlight differently for cursor vs multi-select
+        let row_style = if cursor_selected {
             Style::default().bg(Color::Blue).fg(Color::White)
+        } else if multi_selected {
+            Style::default().bg(Color::DarkGray).fg(Color::White)
         } else {
             Style::default()
         };
 
-        let action_style = if selected {
+        let action_style = if cursor_selected || multi_selected {
             Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
         } else {
             match format!("{}", rule.action).as_str() {
@@ -214,7 +217,7 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
             }
         };
 
-        let enabled_style = if selected {
+        let enabled_style = if cursor_selected || multi_selected {
             Style::default().fg(Color::White)
         } else if rule.enabled {
             Style::default().fg(Color::Green)
@@ -222,7 +225,11 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::DarkGray)
         };
 
+        // Selection indicator: [x] for selected, [ ] for not selected
+        let select_indicator = if multi_selected { "[x]" } else { "[ ]" };
+
         Row::new(vec![
+            Cell::from(select_indicator),
             Cell::from(rule.name.clone()),
             Cell::from(format!("{}", rule.action)).style(action_style),
             Cell::from(if rule.enabled { "Yes" } else { "No" }).style(enabled_style),
@@ -233,9 +240,17 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
         .height(1)
     }).collect();
 
+    // Title with selection count if any rules are selected
+    let title = if app.selected_rules.is_empty() {
+        format!(" Rules ({}) ", app.rules.len())
+    } else {
+        format!(" Rules ({}) [{} selected - Shift+D to delete] ", app.rules.len(), app.selected_rules.len())
+    };
+
     let table = Table::new(
         rows,
         [
+            Constraint::Length(3),  // Sel (checkbox)
             Constraint::Min(20),    // Name
             Constraint::Length(8),  // Action
             Constraint::Length(8),  // Enabled
@@ -246,7 +261,7 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
     .header(header)
     .block(
         Block::default()
-            .title(format!(" Rules ({}) [sel:{}] ", app.rules.len(), app.selected_rule))
+            .title(title)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Blue)),
     );
@@ -377,14 +392,18 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ]),
             Tab::Rules => Line::from(vec![
                 Span::raw(" "),
-                Span::styled("↑↓/jk", Style::default().fg(Color::Cyan)),
-                Span::raw(" Navigate  "),
+                Span::styled("↑↓", Style::default().fg(Color::Cyan)),
+                Span::raw(" Nav  "),
+                Span::styled("Space", Style::default().fg(Color::Magenta)),
+                Span::raw(" Select  "),
                 Span::styled("T", Style::default().fg(Color::Green)),
                 Span::raw(" Toggle  "),
+                Span::styled("d", Style::default().fg(Color::Red)),
+                Span::raw(" Del  "),
                 Span::styled("D", Style::default().fg(Color::Red)),
-                Span::raw(" Delete  "),
-                Span::styled("Tab", Style::default().fg(Color::Cyan)),
-                Span::raw(" Switch tabs  "),
+                Span::raw(" BulkDel  "),
+                Span::styled("Esc", Style::default().fg(Color::Yellow)),
+                Span::raw(" Clear  "),
                 Span::styled("Q", Style::default().fg(Color::Cyan)),
                 Span::raw(" Quit"),
             ]),

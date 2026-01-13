@@ -29,11 +29,50 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, RwLock};
+
+/// Debounce state for kernel sync operations
+/// Prevents spamming the kernel with repeated clear/add operations
+struct SyncDebounce {
+    /// Timestamp when sync was first requested (None if no sync pending)
+    pending_since: Option<Instant>,
+    /// Delay before actually syncing (ms)
+    delay_ms: u64,
+}
+
+impl SyncDebounce {
+    fn new(delay_ms: u64) -> Self {
+        Self {
+            pending_since: None,
+            delay_ms,
+        }
+    }
+
+    /// Mark that a sync is needed (starts the debounce timer)
+    fn request_sync(&mut self) {
+        if self.pending_since.is_none() {
+            self.pending_since = Some(Instant::now());
+        }
+    }
+
+    /// Check if we should sync now (enough time has passed)
+    fn should_sync(&self) -> bool {
+        if let Some(since) = self.pending_since {
+            since.elapsed().as_millis() >= self.delay_ms as u128
+        } else {
+            false
+        }
+    }
+
+    /// Mark sync as completed
+    fn sync_completed(&mut self) {
+        self.pending_since = None;
+    }
+}
 
 /// Domain cache for IP → domain lookups (enables domain-based rules)
 struct DomainCache {
@@ -130,6 +169,75 @@ fn sync_blocked_domains_to_kernel(handle: &DriverHandle, rules: &[Rule]) -> usiz
     }
 
     synced
+}
+
+/// Result of checking for existing rules that match a new rule's target
+enum ExistingRuleMatch {
+    /// No matching rule found
+    None,
+    /// Found a rule with the same action (duplicate)
+    SameAction { rule_id: String, rule_name: String },
+    /// Found a rule with opposite action (conflict)
+    ConflictingAction { rule_id: String, rule_name: String },
+}
+
+/// Check if an existing rule matches the destination and port
+/// Returns the first matching rule info if found
+fn find_matching_rule(rules: &[Rule], destination: &str, port: u16, new_action: sereno_core::types::Action) -> ExistingRuleMatch {
+    use sereno_core::types::PortMatcher;
+
+    // Normalize destination for matching (strip " (SNI)" suffix)
+    let normalized_dest = destination.trim_end_matches(" (SNI)").to_lowercase();
+
+    for rule in rules {
+        let mut has_matching_domain = false;
+        let mut has_matching_port = false;
+
+        for condition in &rule.conditions {
+            match condition {
+                Condition::Domain { patterns } => {
+                    for pattern in patterns {
+                        match pattern {
+                            DomainPattern::Exact { value } => {
+                                let rule_domain = value.trim_end_matches(" (SNI)").to_lowercase();
+                                if rule_domain == normalized_dest {
+                                    has_matching_domain = true;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Condition::RemotePort { matcher } => {
+                    match matcher {
+                        PortMatcher::Single { port: rule_port } if *rule_port == port => {
+                            has_matching_port = true;
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Check if this rule matches both destination and port
+        if has_matching_domain && has_matching_port {
+            if rule.action == new_action {
+                return ExistingRuleMatch::SameAction {
+                    rule_id: rule.id.clone(),
+                    rule_name: rule.name.clone(),
+                };
+            } else {
+                return ExistingRuleMatch::ConflictingAction {
+                    rule_id: rule.id.clone(),
+                    rule_name: rule.name.clone(),
+                };
+            }
+        }
+    }
+
+    ExistingRuleMatch::None
 }
 
 /// Extract domains from rules and resolve them to IPs
@@ -241,6 +349,9 @@ async fn run_async(db_path: &Path) -> Result<()> {
     // Flag to signal verdict cache clear (set when rules change)
     let clear_cache_flag = Arc::new(AtomicBool::new(false));
 
+    // Debounce state for kernel sync (500ms delay to batch rapid changes)
+    let sync_debounce = Arc::new(Mutex::new(SyncDebounce::new(500)));
+
     // Spawn driver polling task
     if let Some(ref handle) = driver_handle {
         let handle_clone = handle.clone();
@@ -255,7 +366,7 @@ async fn run_async(db_path: &Path) -> Result<()> {
     }
 
     // Main event loop
-    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle, engine, clear_cache_flag).await;
+    let result = run_event_loop(&mut terminal, &mut app, &mut conn_rx, driver_handle, engine, clear_cache_flag, sync_debounce).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -480,6 +591,7 @@ async fn run_event_loop(
     driver_handle: Option<Arc<DriverHandle>>,
     engine: Arc<RuleEngine>,
     clear_cache_flag: Arc<AtomicBool>,
+    sync_debounce: Arc<Mutex<SyncDebounce>>,
 ) -> Result<()> {
     loop {
         // Draw UI
@@ -529,12 +641,9 @@ async fn run_event_loop(
                                             let status = if !current_enabled { "enabled" } else { "disabled" };
                                             app.log(format!("Rule {} {}", &rule_id[..8.min(rule_id.len())], status));
 
-                                            // Live sync blocked domains to kernel
-                                            if let Some(ref handle) = driver_handle {
-                                                let synced = sync_blocked_domains_to_kernel(handle, &app.rules);
-                                                if synced > 0 {
-                                                    app.log(format!("Synced {} blocked domains to kernel", synced));
-                                                }
+                                            // Request debounced sync to kernel
+                                            if driver_handle.is_some() {
+                                                sync_debounce.lock().unwrap().request_sync();
                                             }
                                         }
                                         Err(e) => {
@@ -542,9 +651,25 @@ async fn run_event_loop(
                                         }
                                     }
                                 }
-                                EventResult::DeleteRule(_rule_id) => {
-                                    // TODO: Delete rule from database
-                                    app.log("Rule deletion not yet implemented".to_string());
+                                EventResult::DeleteRule(rule_id) => {
+                                    // Delete rule from database
+                                    match engine.remove_rule(&rule_id) {
+                                        Ok(()) => {
+                                            // Refresh rules list
+                                            app.rules = engine.rules();
+                                            // Signal poll loop to clear its verdict cache
+                                            clear_cache_flag.store(true, Ordering::Relaxed);
+                                            app.log(format!("Deleted rule {}", &rule_id[..8.min(rule_id.len())]));
+
+                                            // Request debounced sync to kernel
+                                            if driver_handle.is_some() {
+                                                sync_debounce.lock().unwrap().request_sync();
+                                            }
+                                        }
+                                        Err(e) => {
+                                            app.log(format!("Failed to delete rule: {}", e));
+                                        }
+                                    }
                                 }
                                 EventResult::ToggleConnection { process_name, destination, port, current_action } => {
                                     // Create a rule with the opposite action
@@ -558,53 +683,167 @@ async fn run_event_loop(
 
                                     let action_str = if current_action == "DENY" { "ALLOW" } else { "DENY" };
 
-                                    // Build conditions for the rule
-                                    let mut conditions = Vec::new();
+                                    // Check for existing matching rules (deduplication + conflict detection)
+                                    match find_matching_rule(&app.rules, &destination, port, new_action) {
+                                        ExistingRuleMatch::SameAction { rule_id, rule_name } => {
+                                            // Rule with same action already exists
+                                            // Check if it's disabled - if so, enable it
+                                            let is_disabled = app.rules.iter()
+                                                .find(|r| r.id == rule_id)
+                                                .map(|r| !r.enabled)
+                                                .unwrap_or(false);
 
-                                    // Add domain condition (use destination as domain pattern)
-                                    // Check if destination looks like a domain (contains letters, not just IP)
-                                    let is_domain = destination.chars().any(|c| c.is_alphabetic());
-                                    if is_domain {
-                                        conditions.push(Condition::Domain {
-                                            patterns: vec![DomainPattern::Exact { value: destination.clone() }],
-                                        });
-                                    }
+                                            if is_disabled {
+                                                // Enable the existing rule instead of creating duplicate
+                                                match engine.set_rule_enabled(&rule_id, true) {
+                                                    Ok(()) => {
+                                                        app.rules = engine.rules();
+                                                        clear_cache_flag.store(true, Ordering::Relaxed);
+                                                        app.log(format!("Enabled existing rule: {}", rule_name));
 
-                                    // Add port condition
-                                    conditions.push(Condition::RemotePort {
-                                        matcher: PortMatcher::Single { port },
-                                    });
+                                                        if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                            conn.action = action_str.to_string();
+                                                            conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                                        }
 
-                                    // Create the rule with high priority so it takes effect
-                                    let rule_name = format!("{} {} ({}:{})", action_str, process_name, destination, port);
-                                    let mut rule = Rule::new(rule_name.clone(), new_action, conditions);
-                                    rule.priority = 50; // Higher than default rules
-
-                                    match engine.add_rule(rule) {
-                                        Ok(()) => {
-                                            app.rules = engine.rules();
-                                            clear_cache_flag.store(true, Ordering::Relaxed);
-                                            app.log(format!("Created rule: {}", rule_name));
-
-                                            // Update the connection in the list to show new action
-                                            if let Some(conn) = app.connections.get_mut(app.selected_connection) {
-                                                conn.action = action_str.to_string();
-                                                conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
-                                            }
-
-                                            // Live sync blocked domains to kernel (for new DENY rules)
-                                            if new_action == Action::Deny {
-                                                if let Some(ref handle) = driver_handle {
-                                                    let synced = sync_blocked_domains_to_kernel(handle, &app.rules);
-                                                    if synced > 0 {
-                                                        app.log(format!("Synced {} blocked domains to kernel", synced));
+                                                        if new_action == Action::Deny && driver_handle.is_some() {
+                                                            sync_debounce.lock().unwrap().request_sync();
+                                                        }
                                                     }
+                                                    Err(e) => {
+                                                        app.log(format!("Failed to enable rule: {}", e));
+                                                    }
+                                                }
+                                            } else {
+                                                // Already exists and enabled - just log
+                                                app.log(format!("Rule already exists: {}", rule_name));
+
+                                                if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                    conn.action = action_str.to_string();
+                                                    conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
                                                 }
                                             }
                                         }
-                                        Err(e) => {
-                                            app.log(format!("Failed to create rule: {}", e));
+                                        ExistingRuleMatch::ConflictingAction { rule_id, rule_name } => {
+                                            // Conflicting rule exists - disable it first, then create new
+                                            app.log(format!("Disabling conflicting rule: {}", rule_name));
+
+                                            if let Err(e) = engine.set_rule_enabled(&rule_id, false) {
+                                                app.log(format!("Warning: Failed to disable conflicting rule: {}", e));
+                                            }
+
+                                            // Now create the new rule
+                                            let mut conditions = Vec::new();
+                                            let is_domain = destination.chars().any(|c| c.is_alphabetic());
+                                            if is_domain {
+                                                conditions.push(Condition::Domain {
+                                                    patterns: vec![DomainPattern::Exact { value: destination.clone() }],
+                                                });
+                                            }
+                                            conditions.push(Condition::RemotePort {
+                                                matcher: PortMatcher::Single { port },
+                                            });
+
+                                            let new_rule_name = format!("{} {} ({}:{})", action_str, process_name, destination, port);
+                                            let mut rule = Rule::new(new_rule_name.clone(), new_action, conditions);
+                                            rule.priority = 50;
+
+                                            match engine.add_rule(rule) {
+                                                Ok(()) => {
+                                                    app.rules = engine.rules();
+                                                    clear_cache_flag.store(true, Ordering::Relaxed);
+                                                    app.log(format!("Created rule: {}", new_rule_name));
+
+                                                    if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                        conn.action = action_str.to_string();
+                                                        conn.rule_name = Some(new_rule_name[..20.min(new_rule_name.len())].to_string());
+                                                    }
+
+                                                    if new_action == Action::Deny && driver_handle.is_some() {
+                                                        sync_debounce.lock().unwrap().request_sync();
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    app.log(format!("Failed to create rule: {}", e));
+                                                }
+                                            }
                                         }
+                                        ExistingRuleMatch::None => {
+                                            // No existing rule - create new one
+                                            let mut conditions = Vec::new();
+                                            let is_domain = destination.chars().any(|c| c.is_alphabetic());
+                                            if is_domain {
+                                                conditions.push(Condition::Domain {
+                                                    patterns: vec![DomainPattern::Exact { value: destination.clone() }],
+                                                });
+                                            }
+                                            conditions.push(Condition::RemotePort {
+                                                matcher: PortMatcher::Single { port },
+                                            });
+
+                                            let rule_name = format!("{} {} ({}:{})", action_str, process_name, destination, port);
+                                            let mut rule = Rule::new(rule_name.clone(), new_action, conditions);
+                                            rule.priority = 50;
+
+                                            match engine.add_rule(rule) {
+                                                Ok(()) => {
+                                                    app.rules = engine.rules();
+                                                    clear_cache_flag.store(true, Ordering::Relaxed);
+                                                    app.log(format!("Created rule: {}", rule_name));
+
+                                                    if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                        conn.action = action_str.to_string();
+                                                        conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                                    }
+
+                                                    if new_action == Action::Deny && driver_handle.is_some() {
+                                                        sync_debounce.lock().unwrap().request_sync();
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    app.log(format!("Failed to create rule: {}", e));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                EventResult::ToggleRuleSelection(rule_id) => {
+                                    // Toggle selection state for the rule
+                                    if app.selected_rules.contains(&rule_id) {
+                                        app.selected_rules.remove(&rule_id);
+                                    } else {
+                                        app.selected_rules.insert(rule_id);
+                                    }
+                                }
+                                EventResult::SelectAllRules => {
+                                    // Select all rules
+                                    app.selected_rules = app.rules.iter().map(|r| r.id.clone()).collect();
+                                    app.log(format!("Selected {} rules", app.selected_rules.len()));
+                                }
+                                EventResult::ClearRuleSelection => {
+                                    // Clear all selection
+                                    let count = app.selected_rules.len();
+                                    app.selected_rules.clear();
+                                    app.log(format!("Cleared {} selections", count));
+                                }
+                                EventResult::DeleteSelectedRules(rule_ids) => {
+                                    // Bulk delete all selected rules
+                                    let count = rule_ids.len();
+                                    let mut deleted = 0;
+                                    for rule_id in &rule_ids {
+                                        if engine.remove_rule(rule_id).is_ok() {
+                                            deleted += 1;
+                                        }
+                                    }
+                                    // Clear selection and refresh
+                                    app.selected_rules.clear();
+                                    app.rules = engine.rules();
+                                    clear_cache_flag.store(true, Ordering::Relaxed);
+                                    app.log(format!("Deleted {} of {} rules", deleted, count));
+
+                                    // Request debounced sync to kernel
+                                    if driver_handle.is_some() {
+                                        sync_debounce.lock().unwrap().request_sync();
                                     }
                                 }
                             }
@@ -637,6 +876,20 @@ async fn run_event_loop(
                         }
                     }
                 }
+            }
+        }
+
+        // Check debounced sync - perform sync if enough time has passed
+        {
+            let mut debounce = sync_debounce.lock().unwrap();
+            if debounce.should_sync() {
+                if let Some(ref handle) = driver_handle {
+                    let synced = sync_blocked_domains_to_kernel(handle, &app.rules);
+                    if synced > 0 {
+                        app.log(format!("Synced {} blocked domains to kernel", synced));
+                    }
+                }
+                debounce.sync_completed();
             }
         }
 
