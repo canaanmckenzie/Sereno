@@ -34,6 +34,8 @@ mod windows_impl {
     const IOCTL_SERENO_SET_VERDICT: u32 = ctl_code(FILE_DEVICE_SERENO, 0x802, METHOD_BUFFERED, FILE_WRITE_ACCESS);
     const IOCTL_SERENO_ENABLE: u32 = ctl_code(FILE_DEVICE_SERENO, 0x805, METHOD_BUFFERED, FILE_WRITE_ACCESS);
     const IOCTL_SERENO_GET_SNI: u32 = ctl_code(FILE_DEVICE_SERENO, 0x807, METHOD_BUFFERED, FILE_READ_ACCESS);
+    const IOCTL_SERENO_ADD_BLOCKED_DOMAIN: u32 = ctl_code(FILE_DEVICE_SERENO, 0x808, METHOD_BUFFERED, FILE_WRITE_ACCESS);
+    const IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS: u32 = ctl_code(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS);
 
     #[repr(u32)]
     #[derive(Debug, Clone, Copy)]
@@ -95,6 +97,37 @@ mod windows_impl {
         pub local_port: u16,
         pub remote_port: u16,
         pub domain: String,
+    }
+
+    /// Blocked domain request - sent to kernel to add domain to blocklist
+    #[repr(C, packed)]
+    #[derive(Clone)]
+    pub struct DriverBlockedDomainRequest {
+        pub domain_name: [u16; 256],
+        pub domain_name_length: u32,
+    }
+
+    impl DriverBlockedDomainRequest {
+        pub fn new(domain: &str) -> Self {
+            let mut request = Self {
+                domain_name: [0u16; 256],
+                domain_name_length: 0,
+            };
+
+            let chars: Vec<u16> = domain.encode_utf16().collect();
+            let len = chars.len().min(255);
+
+            // Copy using addr_of_mut! to avoid unaligned reference issues with packed struct
+            unsafe {
+                let dst = std::ptr::addr_of_mut!(request.domain_name) as *mut u16;
+                for (i, &ch) in chars.iter().take(len).enumerate() {
+                    std::ptr::write_unaligned(dst.add(i), ch);
+                }
+            }
+            request.domain_name_length = len as u32;
+
+            request
+        }
     }
 
     impl DriverSniNotification {
@@ -380,6 +413,55 @@ mod windows_impl {
                 }
             }
         }
+
+        /// Add a domain to the kernel blocklist for SNI-based blocking
+        pub fn add_blocked_domain(&self, domain: &str) -> io::Result<()> {
+            let request = DriverBlockedDomainRequest::new(domain);
+            let mut bytes_returned = 0u32;
+
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    IOCTL_SERENO_ADD_BLOCKED_DOMAIN,
+                    Some(&request as *const _ as *const _),
+                    mem::size_of::<DriverBlockedDomainRequest>() as u32,
+                    None,
+                    0,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            if result.is_ok() {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        }
+
+        /// Clear all blocked domains from the kernel blocklist
+        pub fn clear_blocked_domains(&self) -> io::Result<()> {
+            let mut bytes_returned = 0u32;
+
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS,
+                    None,
+                    0,
+                    None,
+                    0,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            if result.is_ok() {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        }
     }
 
     impl Drop for DriverHandle {
@@ -459,6 +541,14 @@ pub mod stub {
 
         pub fn get_sni(&self) -> io::Result<Option<SniNotification>> {
             Ok(None)
+        }
+
+        pub fn add_blocked_domain(&self, _domain: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        pub fn clear_blocked_domains(&self) -> io::Result<()> {
+            Ok(())
         }
     }
 }

@@ -63,6 +63,61 @@ impl DomainCache {
     }
 }
 
+/// Extract domains that should be blocked from rules (for kernel blocklist sync)
+fn extract_blocked_domains(rules: &[Rule]) -> Vec<String> {
+    let mut blocked = Vec::new();
+
+    for rule in rules {
+        // Only consider enabled DENY rules
+        if !rule.enabled || rule.action != sereno_core::types::Action::Deny {
+            continue;
+        }
+
+        for condition in &rule.conditions {
+            if let Condition::Domain { patterns } = condition {
+                for pattern in patterns {
+                    match pattern {
+                        DomainPattern::Exact { value } => {
+                            blocked.push(value.clone());
+                        }
+                        DomainPattern::Wildcard { pattern } => {
+                            // For *.facebook.com, extract facebook.com for suffix matching
+                            let domain = pattern.trim_start_matches("*.");
+                            if !domain.is_empty() {
+                                blocked.push(domain.to_string());
+                            }
+                        }
+                        DomainPattern::Regex { .. } => {
+                            // Can't sync regex patterns to kernel - handled in usermode only
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    blocked
+}
+
+/// Sync blocked domains from rules to kernel blocklist
+fn sync_blocked_domains_to_kernel(handle: &DriverHandle, rules: &[Rule]) -> usize {
+    // First clear existing blocklist
+    if handle.clear_blocked_domains().is_err() {
+        return 0;
+    }
+
+    let blocked_domains = extract_blocked_domains(rules);
+    let mut synced = 0;
+
+    for domain in &blocked_domains {
+        if handle.add_blocked_domain(domain).is_ok() {
+            synced += 1;
+        }
+    }
+
+    synced
+}
+
 /// Extract domains from rules and resolve them to IPs
 fn preload_domains_from_rules(rules: &[Rule]) -> DomainCache {
     let mut cache = DomainCache::new();
@@ -151,6 +206,12 @@ async fn run_async(db_path: &Path) -> Result<()> {
                     app.log(format!("Warning: Could not enable filtering: {}", e));
                 } else {
                     app.log("Driver filtering enabled".to_string());
+
+                    // Sync blocked domains from rules to kernel blocklist (Phase 2: SNI-based blocking)
+                    let synced = sync_blocked_domains_to_kernel(&handle, &app.rules);
+                    if synced > 0 {
+                        app.log(format!("Synced {} blocked domains to kernel", synced));
+                    }
                 }
                 Some(Arc::new(handle))
             }

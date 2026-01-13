@@ -72,6 +72,8 @@ DEFINE_GUID(GUID_NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 #define IOCTL_SERENO_ENABLE         CTL_CODE(FILE_DEVICE_SERENO, 0x805, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_DISABLE        CTL_CODE(FILE_DEVICE_SERENO, 0x806, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_GET_SNI        CTL_CODE(FILE_DEVICE_SERENO, 0x807, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define IOCTL_SERENO_ADD_BLOCKED_DOMAIN CTL_CODE(FILE_DEVICE_SERENO, 0x808, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS CTL_CODE(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 
 // Verdict values
 typedef enum _SERENO_VERDICT {
@@ -157,6 +159,12 @@ typedef struct _SERENO_SNI_NOTIFICATION {
     UINT32      DomainNameLength;   // Length in characters
 } SERENO_SNI_NOTIFICATION, *PSERENO_SNI_NOTIFICATION;
 
+// Blocked domain request - sent from usermode to add domain to blocklist
+typedef struct _SERENO_BLOCKED_DOMAIN_REQUEST {
+    WCHAR       DomainName[256];    // Domain pattern to block (e.g., "facebook.com")
+    UINT32      DomainNameLength;   // Length in characters
+} SERENO_BLOCKED_DOMAIN_REQUEST, *PSERENO_BLOCKED_DOMAIN_REQUEST;
+
 #pragma pack(pop)
 
 // DNS cache entry (internal) - maps IP addresses to domain names
@@ -179,6 +187,10 @@ typedef struct _DNS_CACHE_ENTRY {
 // SNI notification queue - ring buffer for notifying usermode of extracted SNI
 #define MAX_SNI_NOTIFICATIONS   64
 
+// Blocked domain list - domains that should be blocked at Stream layer
+// Populated from usermode rules, checked when SNI is extracted
+#define MAX_BLOCKED_DOMAINS     256
+
 // SNI cache entry - maps connection 5-tuple to domain from TLS ClientHello
 typedef struct _SNI_CACHE_ENTRY {
     UINT64          Timestamp;
@@ -193,6 +205,14 @@ typedef struct _SNI_CACHE_ENTRY {
     WCHAR           DomainName[256];
     UINT32          DomainLength;
 } SNI_CACHE_ENTRY, *PSNI_CACHE_ENTRY;
+
+// Blocked domain entry - for SNI-based blocking at Stream layer
+// Simple substring matching: if SNI contains this domain, block it
+typedef struct _BLOCKED_DOMAIN_ENTRY {
+    BOOLEAN         InUse;
+    WCHAR           DomainName[256];    // Domain pattern to block (e.g., "facebook.com")
+    UINT32          DomainLength;       // Length in characters
+} BLOCKED_DOMAIN_ENTRY, *PBLOCKED_DOMAIN_ENTRY;
 
 // Verdict cache entry - for re-authorization after FwpsCompleteOperation0
 // Key: (ProcessId, RemotePort, DomainName) -> Verdict
@@ -281,6 +301,11 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     UINT32          SniNotifyHead;      // Next slot to write
     UINT32          SniNotifyTail;      // Next slot to read
     KSPIN_LOCK      SniNotifyLock;
+
+    // Blocked domain list - for SNI-based blocking at Stream layer
+    BLOCKED_DOMAIN_ENTRY BlockedDomains[MAX_BLOCKED_DOMAINS];
+    UINT32          BlockedDomainCount;
+    KSPIN_LOCK      BlockedDomainLock;
 
     // Statistics
     SERENO_STATS    Stats;
@@ -404,6 +429,11 @@ BOOLEAN SerenoSniCacheLookup(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN I
 // SNI notification queue - notify usermode about extracted SNI
 VOID SerenoSniNotifyAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ BOOLEAN IsIPv6, _In_ UINT32 RemoteIpV4, _In_opt_ const UINT8* RemoteIpV6, _In_ UINT16 LocalPort, _In_ UINT16 RemotePort, _In_ PCWSTR DomainName, _In_ UINT32 DomainLength);
 BOOLEAN SerenoSniNotifyGet(_In_ PSERENO_DEVICE_CONTEXT Context, _Out_ PSERENO_SNI_NOTIFICATION Notification);
+
+// Blocked domain management - for SNI-based blocking at Stream layer
+BOOLEAN SerenoBlockedDomainAdd(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ PCWSTR DomainName, _In_ UINT32 DomainLength);
+VOID SerenoBlockedDomainClear(_In_ PSERENO_DEVICE_CONTEXT Context);
+BOOLEAN SerenoBlockedDomainCheck(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ PCWSTR DomainName, _In_ UINT32 DomainLength);
 
 // TLS ClientHello parsing for SNI extraction
 BOOLEAN SerenoParseTlsClientHello(_In_ const UINT8* Data, _In_ UINT32 DataLength, _Out_writes_(DomainBufferLength) PWCHAR DomainBuffer, _In_ UINT32 DomainBufferLength, _Out_ PUINT32 DomainLength);

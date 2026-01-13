@@ -240,6 +240,21 @@ DriverEntry(
     deviceContext->SniNotifyTail = 0;
     KeInitializeSpinLock(&deviceContext->SniNotifyLock);
 
+    // Initialize blocked domain list (for SNI-based blocking)
+    RtlZeroMemory(deviceContext->BlockedDomains, sizeof(deviceContext->BlockedDomains));
+    deviceContext->BlockedDomainCount = 0;
+    KeInitializeSpinLock(&deviceContext->BlockedDomainLock);
+
+    // Create TCP injection handle for RST injection (Phase 2: SNI-based blocking)
+    status = FwpsInjectionHandleCreate0(AF_UNSPEC, FWPS_INJECTION_TYPE_STREAM, &deviceContext->InjectionHandle);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsInjectionHandleCreate0 failed: 0x%08X (RST injection disabled)\n", status);
+        deviceContext->InjectionHandle = NULL;
+        // Don't fail - RST injection is optional enhancement
+    } else {
+        SERENO_DBG("TCP injection handle created successfully\n");
+    }
+
     // Create symbolic link
     status = WdfDeviceCreateSymbolicLink(g_ControlDevice, &symlinkName);
     if (!NT_SUCCESS(status)) {
@@ -498,6 +513,37 @@ SerenoEvtIoDeviceControl(
             status = STATUS_NO_MORE_ENTRIES;
             bytesReturned = 0;
         }
+        break;
+    }
+
+    case IOCTL_SERENO_ADD_BLOCKED_DOMAIN:
+    {
+        // Add a domain to the blocked domain list (for SNI-based blocking)
+        PSERENO_BLOCKED_DOMAIN_REQUEST inRequest;
+
+        status = WdfRequestRetrieveInputBuffer(Request, sizeof(SERENO_BLOCKED_DOMAIN_REQUEST), &inputBuffer, NULL);
+        if (!NT_SUCCESS(status)) {
+            break;
+        }
+
+        inRequest = (PSERENO_BLOCKED_DOMAIN_REQUEST)inputBuffer;
+
+        if (SerenoBlockedDomainAdd(deviceContext, inRequest->DomainName, inRequest->DomainNameLength)) {
+            SERENO_DBG("Added blocked domain: %S\n", inRequest->DomainName);
+            status = STATUS_SUCCESS;
+        } else {
+            SERENO_DBG("Failed to add blocked domain (list full or invalid)\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+        break;
+    }
+
+    case IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS:
+    {
+        // Clear all blocked domains
+        SerenoBlockedDomainClear(deviceContext);
+        SERENO_DBG("Cleared all blocked domains\n");
+        status = STATUS_SUCCESS;
         break;
     }
 
@@ -935,6 +981,12 @@ SerenoUnregisterCallouts(
     if (DeviceContext->StreamCalloutIdV6) {
         FwpsCalloutUnregisterById0(DeviceContext->StreamCalloutIdV6);
         DeviceContext->StreamCalloutIdV6 = 0;
+    }
+
+    // Destroy injection handle (for TCP RST injection)
+    if (DeviceContext->InjectionHandle) {
+        FwpsInjectionHandleDestroy0(DeviceContext->InjectionHandle);
+        DeviceContext->InjectionHandle = NULL;
     }
 
     SERENO_DBG("Callouts unregistered\n");
@@ -1981,6 +2033,126 @@ SerenoSniNotifyGet(
 }
 
 // ============================================================================
+// Blocked Domain Management - For SNI-based blocking at Stream layer
+// ============================================================================
+
+/*
+ * SerenoBlockedDomainAdd - Add a domain to the blocked list
+ * Returns TRUE on success, FALSE if list is full or domain is invalid
+ */
+BOOLEAN
+SerenoBlockedDomainAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength
+)
+{
+    KIRQL oldIrql;
+    UINT32 i;
+    BOOLEAN added = FALSE;
+
+    if (DomainLength == 0 || DomainLength >= 256) {
+        return FALSE;
+    }
+
+    KeAcquireSpinLock(&Context->BlockedDomainLock, &oldIrql);
+
+    // Check if already in list (avoid duplicates)
+    for (i = 0; i < MAX_BLOCKED_DOMAINS; i++) {
+        if (Context->BlockedDomains[i].InUse &&
+            Context->BlockedDomains[i].DomainLength == DomainLength) {
+            // Case-insensitive compare
+            if (_wcsnicmp(Context->BlockedDomains[i].DomainName, DomainName, DomainLength) == 0) {
+                // Already exists
+                added = TRUE;
+                goto done;
+            }
+        }
+    }
+
+    // Find empty slot
+    for (i = 0; i < MAX_BLOCKED_DOMAINS; i++) {
+        if (!Context->BlockedDomains[i].InUse) {
+            Context->BlockedDomains[i].InUse = TRUE;
+            RtlCopyMemory(Context->BlockedDomains[i].DomainName, DomainName, DomainLength * sizeof(WCHAR));
+            Context->BlockedDomains[i].DomainName[DomainLength] = L'\0';
+            Context->BlockedDomains[i].DomainLength = DomainLength;
+            Context->BlockedDomainCount++;
+            added = TRUE;
+            break;
+        }
+    }
+
+done:
+    KeReleaseSpinLock(&Context->BlockedDomainLock, oldIrql);
+    return added;
+}
+
+/*
+ * SerenoBlockedDomainClear - Clear all blocked domains
+ */
+VOID
+SerenoBlockedDomainClear(
+    _In_ PSERENO_DEVICE_CONTEXT Context
+)
+{
+    KIRQL oldIrql;
+
+    KeAcquireSpinLock(&Context->BlockedDomainLock, &oldIrql);
+    RtlZeroMemory(Context->BlockedDomains, sizeof(Context->BlockedDomains));
+    Context->BlockedDomainCount = 0;
+    KeReleaseSpinLock(&Context->BlockedDomainLock, oldIrql);
+}
+
+/*
+ * SerenoBlockedDomainCheck - Check if domain is in blocked list
+ * Uses suffix matching: "facebook.com" matches "www.facebook.com", "facebook.com", etc.
+ * Returns TRUE if domain should be blocked
+ */
+BOOLEAN
+SerenoBlockedDomainCheck(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ PCWSTR DomainName,
+    _In_ UINT32 DomainLength
+)
+{
+    KIRQL oldIrql;
+    UINT32 i;
+    BOOLEAN blocked = FALSE;
+
+    if (DomainLength == 0 || Context->BlockedDomainCount == 0) {
+        return FALSE;
+    }
+
+    KeAcquireSpinLock(&Context->BlockedDomainLock, &oldIrql);
+
+    for (i = 0; i < MAX_BLOCKED_DOMAINS && !blocked; i++) {
+        if (!Context->BlockedDomains[i].InUse) {
+            continue;
+        }
+
+        UINT32 patternLen = Context->BlockedDomains[i].DomainLength;
+        PCWSTR pattern = Context->BlockedDomains[i].DomainName;
+
+        // Suffix match: domain ends with pattern
+        // e.g., pattern "facebook.com" matches "www.facebook.com", "facebook.com"
+        if (DomainLength >= patternLen) {
+            PCWSTR suffix = DomainName + (DomainLength - patternLen);
+            if (_wcsnicmp(suffix, pattern, patternLen) == 0) {
+                // Also check it's at domain boundary (start of string or after '.')
+                if (DomainLength == patternLen ||
+                    suffix[-1] == L'.') {
+                    blocked = TRUE;
+                }
+            }
+        }
+    }
+
+    KeReleaseSpinLock(&Context->BlockedDomainLock, oldIrql);
+    return blocked;
+}
+
+// ============================================================================
 // TLS ClientHello Parsing - Extract SNI from TLS handshake
 // ============================================================================
 
@@ -2157,11 +2329,14 @@ SerenoParseTlsClientHello(
 // ============================================================================
 
 /*
- * SerenoClassifyStream - Stream layer callout for SNI extraction
+ * SerenoClassifyStream - Stream layer callout for SNI extraction and blocking
  *
  * Inspects outbound TCP stream data on port 443 for TLS ClientHello.
  * Extracts SNI and stores in cache for later verdict lookup.
- * This is INSPECTION ONLY - always permits the data.
+ *
+ * Phase 2 (SNI-based blocking): After extracting SNI, checks against the
+ * blocked domain list. If matched, drops the connection and adds to verdict
+ * cache so future connections to that domain are blocked at ALE layer.
  */
 VOID NTAPI
 SerenoClassifyStream(
@@ -2314,6 +2489,41 @@ SerenoClassifyStream(
             );
 
             SERENO_DBG("Stream SNI extracted: %S (port %u)", domainBuffer, remotePort);
+
+            // Phase 2: Check if domain is in blocked list
+            if (SerenoBlockedDomainCheck(deviceContext, domainBuffer, domainLength)) {
+                SERENO_DBG("BLOCKED by SNI: %S", domainBuffer);
+
+                // Block the stream data - this will cause TCP connection to fail
+                ClassifyOut->actionType = FWP_ACTION_BLOCK;
+                ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+
+                // Consume the data without sending it (effectively drops the ClientHello)
+                streamPacket->countBytesRequired = 0;
+                streamPacket->streamAction = FWPS_STREAM_ACTION_DROP_CONNECTION;
+
+                // Add to verdict cache so future connections are blocked at ALE layer
+                // Use process ID 0 to match any process going to this domain
+                SerenoVerdictCacheAdd(
+                    deviceContext,
+                    0,  // ProcessId 0 = any process
+                    isIPv6,
+                    remoteAddrV4,
+                    isIPv6 ? remoteAddrV6 : NULL,
+                    remotePort,
+                    domainBuffer,
+                    domainLength,
+                    SERENO_VERDICT_BLOCK
+                );
+
+                deviceContext->Stats.BlockedConnections++;
+
+                // Free buffer and return early
+                if (allocatedBuffer) {
+                    ExFreePoolWithTag(allocatedBuffer, SERENO_POOL_TAG);
+                }
+                return;
+            }
         }
     }
 
