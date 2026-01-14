@@ -530,6 +530,7 @@ async fn driver_poll_loop(
                         destination: domain.clone().unwrap_or_else(|| req.remote_address.to_string()),
                         remote_address: req.remote_address.to_string(),
                         port: req.remote_port,
+                        local_port: req.local_port,
                         protocol: format!("{:?}", req.protocol),
                         rule_name: match &verdict {
                             EvalResult::Allow { rule_id } | EvalResult::Deny { rule_id } => {
@@ -866,19 +867,41 @@ async fn run_event_loop(
             Some(driver_event) = conn_rx.recv() => {
                 match driver_event {
                     DriverEvent::Connection { event, .. } => {
+                        // Cache process name for TLM flow lookup (by PID)
+                        app.cache_process_name(event.process_id, &event.process_name);
+                        // Cache by local port for TLM correlation (local port is unique per connection)
+                        app.cache_port_process(
+                            event.local_port,
+                            &event.process_name,
+                            &event.remote_address,
+                            &event.destination,
+                        );
                         // ASK connections are auto-allowed now (no blocking)
                         app.add_connection(event);
                     }
                     DriverEvent::SniUpdate { remote_address, port, domain } => {
                         // Update existing connection(s) with SNI domain
                         // Match by remote IP and port
+                        // Collect port cache updates first to avoid borrow checker issues
+                        let mut port_updates: Vec<(u16, String, String, String)> = Vec::new();
                         for conn in app.connections.iter_mut() {
                             if conn.remote_address == remote_address && conn.port == port {
                                 // Only update if destination is still showing IP (no domain yet)
                                 if conn.destination == remote_address {
                                     conn.destination = format!("{} (SNI)", domain);
                                 }
+                                // Collect update for port process cache
+                                port_updates.push((
+                                    conn.local_port,
+                                    conn.process_name.clone(),
+                                    remote_address.clone(),
+                                    format!("{} (SNI)", domain),
+                                ));
                             }
+                        }
+                        // Apply port cache updates after the mutable borrow ends
+                        for (local_port, proc_name, remote_ip, dest) in port_updates {
+                            app.cache_port_process(local_port, &proc_name, &remote_ip, &dest);
                         }
                     }
                 }
@@ -904,16 +927,8 @@ async fn run_event_loop(
             if let Some(ref handle) = driver_handle {
                 match handle.get_bandwidth_stats() {
                     Ok(entries) => {
-                        // Aggregate bandwidth stats
-                        let mut total_sent = 0u64;
-                        let mut total_recv = 0u64;
-                        for entry in &entries {
-                            total_sent += entry.bytes_sent;
-                            total_recv += entry.bytes_received;
-                        }
-                        app.total_bytes_sent = total_sent;
-                        app.total_bytes_received = total_recv;
-                        app.active_flows = entries.len();
+                        // Update app with flow data (handles aggregation, history, etc.)
+                        app.update_flows(entries);
 
                         // Debug: log bandwidth poll results
                         let _ = std::fs::OpenOptions::new()
@@ -924,7 +939,7 @@ async fn run_event_loop(
                                 use std::io::Write;
                                 writeln!(f, "[{}] TLM: {} flows, sent={}, recv={}",
                                     chrono::Local::now().format("%H:%M:%S"),
-                                    entries.len(), total_sent, total_recv)
+                                    app.active_flows, app.total_bytes_sent, app.total_bytes_received)
                             });
                     }
                     Err(e) => {
@@ -1021,6 +1036,7 @@ fn add_demo_connections(app: &mut App) {
             destination: "google.com".to_string(),
             remote_address: "142.250.80.46".to_string(),
             port: 443,
+            local_port: 50001,
             protocol: "Tcp".to_string(),
             rule_name: None,
             is_pending: false,
@@ -1034,6 +1050,7 @@ fn add_demo_connections(app: &mut App) {
             destination: "github.com".to_string(),
             remote_address: "140.82.114.4".to_string(),
             port: 443,
+            local_port: 50002,
             protocol: "Tcp".to_string(),
             rule_name: None,
             is_pending: true,
@@ -1047,6 +1064,7 @@ fn add_demo_connections(app: &mut App) {
             destination: "telemetry.microsoft.com".to_string(),
             remote_address: "13.107.4.52".to_string(),
             port: 443,
+            local_port: 50003,
             protocol: "Tcp".to_string(),
             rule_name: Some("Block Telemetry".to_string()),
             is_pending: false,
@@ -1060,6 +1078,7 @@ fn add_demo_connections(app: &mut App) {
             destination: "localhost".to_string(),
             remote_address: "127.0.0.1".to_string(),
             port: 50073,
+            local_port: 50004,
             protocol: "Tcp".to_string(),
             rule_name: Some("Allow Local".to_string()),
             is_pending: false,
@@ -1073,6 +1092,7 @@ fn add_demo_connections(app: &mut App) {
             destination: "windowsupdate.com".to_string(),
             remote_address: "13.107.4.50".to_string(),
             port: 443,
+            local_port: 50005,
             protocol: "Tcp".to_string(),
             rule_name: Some("Allow WU".to_string()),
             is_pending: false,

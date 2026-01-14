@@ -216,9 +216,12 @@ mod windows_impl {
                 // IPv6 addresses not stored in uint32 - use placeholder
                 (IpAddr::V4(Ipv4Addr::UNSPECIFIED), IpAddr::V4(Ipv4Addr::UNSPECIFIED))
             } else {
+                // TLM stores IPs - extract bytes in big-endian order for correct display
+                let local_bytes = local_v4.to_be_bytes();
+                let remote_bytes = remote_v4.to_be_bytes();
                 (
-                    IpAddr::V4(Ipv4Addr::from(u32::from_be(local_v4))),
-                    IpAddr::V4(Ipv4Addr::from(u32::from_be(remote_v4))),
+                    IpAddr::V4(Ipv4Addr::new(local_bytes[0], local_bytes[1], local_bytes[2], local_bytes[3])),
+                    IpAddr::V4(Ipv4Addr::new(remote_bytes[0], remote_bytes[1], remote_bytes[2], remote_bytes[3])),
                 )
             };
 
@@ -620,6 +623,195 @@ mod windows_impl {
 
     unsafe impl Send for DriverHandle {}
     unsafe impl Sync for DriverHandle {}
+
+    // ============================================================================
+    // Port-to-Process Lookup (using Windows IP Helper API)
+    // ============================================================================
+
+    use windows::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, GetExtendedUdpTable,
+        TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
+
+    /// TCP connection entry with owner PID
+    #[repr(C)]
+    struct MIB_TCPROW_OWNER_PID {
+        dw_state: u32,
+        dw_local_addr: u32,
+        dw_local_port: u32,
+        dw_remote_addr: u32,
+        dw_remote_port: u32,
+        dw_owning_pid: u32,
+    }
+
+    /// TCP table header
+    #[repr(C)]
+    struct MIB_TCPTABLE_OWNER_PID {
+        dw_num_entries: u32,
+        table: [MIB_TCPROW_OWNER_PID; 1], // Variable length array
+    }
+
+    /// UDP connection entry with owner PID
+    #[repr(C)]
+    struct MIB_UDPROW_OWNER_PID {
+        dw_local_addr: u32,
+        dw_local_port: u32,
+        dw_owning_pid: u32,
+    }
+
+    /// UDP table header
+    #[repr(C)]
+    struct MIB_UDPTABLE_OWNER_PID {
+        dw_num_entries: u32,
+        table: [MIB_UDPROW_OWNER_PID; 1], // Variable length array
+    }
+
+    /// Get process ID by local port (checks both TCP and UDP)
+    pub fn get_pid_by_port(local_port: u16) -> Option<u32> {
+        // Try TCP first
+        if let Some(pid) = get_tcp_pid_by_port(local_port) {
+            return Some(pid);
+        }
+        // Then try UDP
+        get_udp_pid_by_port(local_port)
+    }
+
+    /// Get TCP connection's owning PID by local port
+    fn get_tcp_pid_by_port(local_port: u16) -> Option<u32> {
+        let mut size: u32 = 0;
+
+        // First call to get required buffer size
+        unsafe {
+            let _ = GetExtendedTcpTable(
+                None,
+                &mut size,
+                false,
+                2u32, // AF_INET
+                TCP_TABLE_OWNER_PID_ALL,
+                0,
+            );
+        }
+
+        if size == 0 {
+            return None;
+        }
+
+        // Allocate buffer
+        let mut buffer: Vec<u8> = vec![0u8; size as usize];
+
+        // Second call to get actual data
+        let result = unsafe {
+            GetExtendedTcpTable(
+                Some(buffer.as_mut_ptr() as *mut _),
+                &mut size,
+                false,
+                2u32, // AF_INET
+                TCP_TABLE_OWNER_PID_ALL,
+                0,
+            )
+        };
+
+        if result != 0 {
+            return None;
+        }
+
+        let table = unsafe { &*(buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID) };
+        let num_entries = table.dw_num_entries as usize;
+
+        // Search for matching local port
+        let entries_ptr = &table.table as *const MIB_TCPROW_OWNER_PID;
+        for i in 0..num_entries {
+            let entry = unsafe { &*entries_ptr.add(i) };
+            // Port is stored in network byte order (big endian) in the upper 16 bits
+            let port = ((entry.dw_local_port & 0xFF) << 8) | ((entry.dw_local_port >> 8) & 0xFF);
+            if port as u16 == local_port {
+                return Some(entry.dw_owning_pid);
+            }
+        }
+
+        None
+    }
+
+    /// Get UDP connection's owning PID by local port
+    fn get_udp_pid_by_port(local_port: u16) -> Option<u32> {
+        let mut size: u32 = 0;
+
+        // First call to get required buffer size
+        unsafe {
+            let _ = GetExtendedUdpTable(
+                None,
+                &mut size,
+                false,
+                2u32, // AF_INET
+                UDP_TABLE_OWNER_PID,
+                0,
+            );
+        }
+
+        if size == 0 {
+            return None;
+        }
+
+        // Allocate buffer
+        let mut buffer: Vec<u8> = vec![0u8; size as usize];
+
+        // Second call to get actual data
+        let result = unsafe {
+            GetExtendedUdpTable(
+                Some(buffer.as_mut_ptr() as *mut _),
+                &mut size,
+                false,
+                2u32, // AF_INET
+                UDP_TABLE_OWNER_PID,
+                0,
+            )
+        };
+
+        if result != 0 {
+            return None;
+        }
+
+        let table = unsafe { &*(buffer.as_ptr() as *const MIB_UDPTABLE_OWNER_PID) };
+        let num_entries = table.dw_num_entries as usize;
+
+        // Search for matching local port
+        let entries_ptr = &table.table as *const MIB_UDPROW_OWNER_PID;
+        for i in 0..num_entries {
+            let entry = unsafe { &*entries_ptr.add(i) };
+            let port = ((entry.dw_local_port & 0xFF) << 8) | ((entry.dw_local_port >> 8) & 0xFF);
+            if port as u16 == local_port {
+                return Some(entry.dw_owning_pid);
+            }
+        }
+
+        None
+    }
+
+    /// Get process name by PID
+    pub fn get_process_name_by_pid(pid: u32) -> Option<String> {
+        if pid == 0 || pid == 4 {
+            // System and System Idle Process
+            return Some("System".to_string());
+        }
+
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+
+            let mut name_buffer = [0u16; 260];
+            let len = GetModuleBaseNameW(handle, None, &mut name_buffer);
+
+            let _ = CloseHandle(handle);
+
+            if len > 0 {
+                let name = String::from_utf16_lossy(&name_buffer[..len as usize]);
+                Some(name)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -713,6 +905,16 @@ pub mod stub {
         pub fn get_bandwidth_stats(&self) -> io::Result<Vec<BandwidthEntry>> {
             Ok(Vec::new())
         }
+    }
+
+    /// Stub: Get PID by local port (not available on non-Windows)
+    pub fn get_pid_by_port(_local_port: u16) -> Option<u32> {
+        None
+    }
+
+    /// Stub: Get process name by PID (not available on non-Windows)
+    pub fn get_process_name_by_pid(_pid: u32) -> Option<String> {
+        None
     }
 }
 

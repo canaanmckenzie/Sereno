@@ -71,12 +71,15 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> EventResult {
             app.switch_tab(Tab::Monitor);
         }
         KeyCode::Char('2') => {
-            app.switch_tab(Tab::Rules);
+            app.switch_tab(Tab::Flows);
         }
         KeyCode::Char('3') => {
-            app.switch_tab(Tab::Logs);
+            app.switch_tab(Tab::Rules);
         }
         KeyCode::Char('4') => {
+            app.switch_tab(Tab::Logs);
+        }
+        KeyCode::Char('5') => {
             app.switch_tab(Tab::Settings);
         }
         KeyCode::Tab => {
@@ -98,6 +101,7 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> EventResult {
 fn handle_tab_key(app: &mut App, key: KeyEvent) -> EventResult {
     match app.active_tab {
         Tab::Monitor => handle_monitor_key(app, key),
+        Tab::Flows => handle_flows_key(app, key),
         Tab::Rules => handle_rules_key(app, key),
         Tab::Logs => handle_logs_key(app, key),
         Tab::Settings => handle_settings_key(app, key),
@@ -147,6 +151,67 @@ fn handle_monitor_key(app: &mut App, key: KeyEvent) -> EventResult {
                     port: conn.port,
                     current_action: conn.action.clone(),
                 };
+            }
+        }
+        _ => {}
+    }
+    EventResult::Continue
+}
+
+/// Handle keys in the Flows tab
+fn handle_flows_key(app: &mut App, key: KeyEvent) -> EventResult {
+    // Assume ~20 visible rows for scroll adjustment (will be refined by actual rendering)
+    const VISIBLE_ROWS: usize = 20;
+
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.select_up();
+            app.adjust_flow_scroll(VISIBLE_ROWS);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.select_down();
+            app.adjust_flow_scroll(VISIBLE_ROWS);
+        }
+        KeyCode::Home => {
+            app.selected_flow = 0;
+            app.flow_scroll_offset = 0;
+        }
+        KeyCode::End => {
+            app.selected_flow = app.flows.len().saturating_sub(1);
+            app.adjust_flow_scroll(VISIBLE_ROWS);
+        }
+        KeyCode::PageUp => {
+            app.selected_flow = app.selected_flow.saturating_sub(VISIBLE_ROWS);
+            app.adjust_flow_scroll(VISIBLE_ROWS);
+        }
+        KeyCode::PageDown => {
+            let max = app.flows.len().saturating_sub(1);
+            app.selected_flow = (app.selected_flow + VISIBLE_ROWS).min(max);
+            app.adjust_flow_scroll(VISIBLE_ROWS);
+        }
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            // Cycle sort mode
+            app.next_flow_sort();
+            let sort_name = match app.flow_sort {
+                crate::tui::app::FlowSort::BytesTotal => "Total Bytes",
+                crate::tui::app::FlowSort::BytesSent => "Bytes Sent",
+                crate::tui::app::FlowSort::BytesReceived => "Bytes Received",
+                crate::tui::app::FlowSort::Duration => "Duration",
+                crate::tui::app::FlowSort::Process => "Process Name",
+            };
+            app.log(format!("Flows sorted by: {}", sort_name));
+        }
+        KeyCode::Enter => {
+            // Show flow details
+            if let Some(flow) = app.selected_flow_item() {
+                app.log(format!(
+                    "Flow: {}:{} → {}:{} | ↑{} ↓{} | {:.1}s",
+                    flow.local_address, flow.local_port,
+                    flow.remote_address, flow.remote_port,
+                    crate::tui::ui::format_bytes_pub(flow.bytes_sent),
+                    crate::tui::ui::format_bytes_pub(flow.bytes_received),
+                    flow.duration_secs
+                ));
             }
         }
         _ => {}
