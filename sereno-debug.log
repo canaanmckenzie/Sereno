@@ -959,3 +959,1220 @@
 [18:37:22] Sent Allow for request 7 (ASK)
 [18:37:22] Got request 8 from Code.exe (170.117.168.52:443) pid=9264
 [18:37:22] Sent Allow for request 8 (ASK)
+[18:37:25] Got request 9 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:25] Sent Allow for request 9 (ASK)
+[18:37:25] Got request 10 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:25] Sent Allow for request 10 (ASK)
+[18:37:36] Got request 12 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:36] Sent Allow for request 12 (ASK)
+[18:37:36] Got request 13 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:36] Sent Allow for request 13 (ASK)
+[18:37:39] Got request 14 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:39] Sent Allow for request 14 (ASK)
+[18:37:39] Got request 15 from Code.exe (170.117.168.52:443) pid=9264
+[18:37:39] Sent Allow for request 15 (ASK)
+[18:37:50] Got request 16 from pwsh.exe (147.247.188.52:443) pid=9228
+[18:37:50] Sent Allow for request 16 (ASK)
+[18:38:26] Got request 17 from git-remote-https.exe (3.113.82.140:443) pid=14176
+[18:38:26] Sent Allow for request 17 (ASK)
+[18:38:45] Got request 18 from svchost.exe (1.0.0.10:49152) pid=1960
+[18:38:45] Sent Allow for request 18 (ASK)
+[18:38:56] Got request 19 from node.exe (2607:6bc0::10:443) pid=10264
+[18:38:56] Sent Allow for request 19 (ASK)
+[18:40:37] Got request 20 from Code.exe (2620:1ec:bdf::40:443) pid=9264
+[18:40:37] Sent Allow for request 20 (ASK)
+[18:43:07] Got request 21 from Code.exe (92.16.208.104:443) pid=9264
+[18:43:07] Sent Allow for request 21 (ASK)
+[18:43:10] Got request 22 from Code.exe (92.16.208.104:443) pid=9264
+[18:43:10] Sent Allow for request 22 (ASK)
+[18:43:10] Got request 23 from Code.exe (92.16.208.104:443) pid=9264
+[18:43:10] Sent Allow for request 23 (ASK)
+[18:43:29] Got request 24 from node.exe (2607:6bc0::10:443) pid=10264
+[18:43:29] Sent Allow for request 24 (ASK)
+[18:45:38] Got request 25 from Code.exe (2620:1ec:bdf::40:443) pid=9264
+[18:45:38] Sent Allow for request 25 (ASK)
+[18:45:59] Got request 26 from node.exe (2607:6bc0::10:443) pid=10264
+[18:45:59] Sent Allow for request 26 (ASK)
+[18:46:18] Got request 27 from node.exe (2606:4700::6810:222:443) pid=8184
+[18:46:18] Sent Allow for request 27 (ASK)
+[18:46:26] Got request 28 from vctip.exe (252.15.104.51:443) pid=9224
+[18:46:26] Sent Allow for request 28 (ASK)
+[18:46:26] Got request 29 from vctip.exe (252.15.104.51:443) pid=9224
+[18:46:26] Sent Allow for request 29 (ASK)
+[18:46:34] Got request 30 from node.exe (2607:6bc0::10:443) pid=10264
+[18:46:34] Sent Allow for request 30 (ASK)
+[18:46:55] Got request 31 from Code.exe (94.65.42.20:443) pid=9264
+[18:46:55] Sent Allow for request 31 (ASK)
+[18:46:55] Got request 32 from Code.exe (94.65.42.20:443) pid=9264
+[18:46:55] Sent Allow for request 32 (ASK)
+[18:46:58] Got request 33 from Code.exe (94.65.42.20:443) pid=9264
+[18:46:58] Sent Allow for request 33 (ASK)
+[18:46:58] Got request 34 from Code.exe (94.65.42.20:443) pid=9264
+[18:46:58] Sent Allow for request 34 (ASK)
+[18:47:15] Got request 35 from node.exe (2607:6bc0::10:443) pid=10264
+[18:47:15] Sent Allow for request 35 (ASK)
+[18:48:00] Got request 36 from Code.exe (27.178.89.13:443) pid=9264
+[18:48:00] Sent Allow for request 36 (ASK)
+[18:48:00] Got request 37 from Code.exe (27.178.89.13:443) pid=9264
+[18:48:00] Sent Allow for request 37 (ASK)
+[18:48:03] Got request 38 from Code.exe (27.178.89.13:443) pid=9264
+[18:48:03] Sent Allow for request 38 (ASK)
+[18:48:03] Got request 39 from Code.exe (27.178.89.13:443) pid=9264
+[18:48:03] Sent Allow for request 39 (ASK)
+[18:48:51] Got request 40 from node.exe (2607:6bc0::10:443) pid=10264
+[18:48:51] Sent Allow for request 40 (ASK)
+[18:49:55] Got request 41 from Code.exe (93.5.107.13:443) pid=9264
+[18:49:55] Sent Allow for request 41 (ASK)
+[18:50:21] Got request 42 from pwsh.exe (36.73.179.52:443) pid=9228
+[18:50:21] Sent Allow for request 42 (ASK)
+[18:50:22] Got request 43 from Code.exe (2620:1ec:46::40:443) pid=9264
+[18:50:22] Sent Allow for request 43 (ASK)
+[18:53:40] Got request 44 from taskhostw.exe (97.17.167.52:443) pid=7988
+[18:53:40] Sent Allow for request 44 (ASK)
+[18:53:41] Got request 45 from taskhostw.exe (97.17.167.52:443) pid=7988
+[18:53:41] Sent Allow for request 45 (ASK)
+[18:53:42] Got request 46 from taskhostw.exe (97.17.167.52:443) pid=7988
+[18:53:42] Sent Allow for request 46 (ASK)
+[18:53:42] Got request 47 from taskhostw.exe (97.17.167.52:443) pid=7988
+[18:53:42] Sent Allow for request 47 (ASK)
+[18:53:42] Got request 48 from taskhostw.exe (97.17.167.52:443) pid=7988
+[18:53:42] Sent Allow for request 48 (ASK)
+[18:54:51] Got request 49 from svchost.exe (1.0.0.10:49152) pid=12404
+[18:54:51] Sent Allow for request 49 (ASK)
+[18:55:38] Got request 50 from Code.exe (2620:1ec:46::40:443) pid=9264
+[18:55:38] Sent Allow for request 50 (ASK)
+[13:51:24] Got request 5 from curl.exe (2607:f8b0:4006:81e::200e:443) pid=10888
+[13:51:24] Sent Block for request 5 (DENY)
+[13:51:34] Got request 6 from curl.exe (2607:f8b0:4006:81e::200e:443) pid=12712
+[13:51:34] Sent Allow for request 6 (ASK)
+[13:52:10] Got request 9 from node.exe (2607:6bc0::10:443) pid=2332
+[13:52:10] Sent Allow for request 9 (ASK)
+[13:52:27] Got request 10 from pwsh.exe (37.73.179.52:443) pid=12688
+[13:52:27] Sent Allow for request 10 (ASK)
+[13:52:30] Got request 11 from node.exe (2607:6bc0::10:443) pid=2332
+[13:52:30] Sent Allow for request 11 (ASK)
+[13:52:40] Got request 12 from svchost.exe (1.0.0.10:49152) pid=11904
+[13:52:40] Sent Allow for request 12 (ASK)
+[13:52:43] Got request 13 from Unknown (2607:f8b0:4006:81e::200e:0) pid=4
+[13:52:43] Sent Allow for request 13 (ASK)
+[13:52:43] Got request 14 from node.exe (2600:1901:0:3084:::443) pid=2332
+[13:52:43] Sent Allow for request 14 (ASK)
+[13:52:48] Got request 15 from Unknown (2607:f8b0:4006:81e::200e:0) pid=4
+[13:52:48] Sent Allow for request 15 (ASK)
+[13:52:54] Got request 16 from node.exe (2607:6bc0::10:443) pid=2332
+[13:52:54] Sent Allow for request 16 (ASK)
+[13:52:54] Got request 17 from Unknown (2607:f8b0:4006:81e::200e:0) pid=4
+[13:52:54] Sent Allow for request 17 (ASK)
+[13:53:03] Got request 18 from node.exe (2607:6bc0::10:443) pid=2332
+[13:53:03] Sent Allow for request 18 (ASK)
+[13:53:59] Got request 2 from curl.exe (2607:f8b0:4006:81e::200e:443) pid=9380
+[13:53:59] Sent Allow for request 2 (ASK)
+[13:54:02] Got request 3 from Unknown (2607:f8b0:4006:81e::200e:0) pid=4
+[13:54:02] Sent Allow for request 3 (ASK)
+[13:54:22] Got request 4 from pwsh.exe (149.247.188.52:443) pid=12168
+[13:54:22] Sent Allow for request 4 (ASK)
+[13:54:25] Got request 5 from node.exe (2607:6bc0::10:443) pid=2332
+[13:54:25] Sent Allow for request 5 (ASK)
+[13:54:31] Got request 7 from curl.exe (2607:f8b0:4006:820::200e:443) pid=3484
+[13:54:31] Sent Allow for request 7 (ASK)
+[13:54:38] Got request 9 from curl.exe (2606:7100:1:67::26:443) pid=4224
+[13:54:38] Sent Allow for request 9 (ASK)
+[13:54:58] Got request 11 from git-remote-https.exe (3.114.82.140:443) pid=3456
+[13:54:58] Sent Allow for request 11 (ASK)
+[13:55:02] Got request 12 from Unknown (fe80::7203:7eff:fe0b:6eea:0) pid=4
+[13:55:02] Sent Allow for request 12 (ASK)
+[13:55:03] Got request 13 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:03] Sent Allow for request 13 (ASK)
+[13:55:03] Got request 14 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:03] Sent Allow for request 14 (ASK)
+[13:55:03] Got request 15 from Code.exe (166.92.203.52:443) pid=11068
+[13:55:03] Sent Allow for request 15 (ASK)
+[13:55:06] Got request 16 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:06] Sent Allow for request 16 (ASK)
+[13:55:06] Got request 17 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:06] Sent Allow for request 17 (ASK)
+[13:55:06] Got request 18 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:06] Sent Allow for request 18 (ASK)
+[13:55:21] Got request 19 from Code.exe (2620:1ec:48:1::40:443) pid=10388
+[13:55:21] Sent Allow for request 19 (ASK)
+[13:55:23] Got request 20 from svchost.exe (3.173.189.20:443) pid=3792
+[13:55:23] Sent Allow for request 20 (ASK)
+[13:55:26] Got request 21 from svchost.exe (3.173.189.20:443) pid=3792
+[13:55:26] Sent Allow for request 21 (ASK)
+[13:55:31] Got request 22 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:31] Sent Allow for request 22 (ASK)
+[13:55:31] Got request 23 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:31] Sent Allow for request 23 (ASK)
+[13:55:31] Got request 24 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:31] Sent Allow for request 24 (ASK)
+[13:55:34] Got request 25 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:34] Sent Allow for request 25 (ASK)
+[13:55:34] Got request 26 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:34] Sent Allow for request 26 (ASK)
+[13:55:34] Got request 27 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:34] Sent Allow for request 27 (ASK)
+[13:55:35] Got request 28 from svchost.exe (3.173.189.20:443) pid=3792
+[13:55:35] Sent Allow for request 28 (ASK)
+[13:55:52] Got request 29 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:52] Sent Allow for request 29 (ASK)
+[13:55:52] Got request 30 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:52] Sent Allow for request 30 (ASK)
+[13:55:52] Got request 31 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:52] Sent Allow for request 31 (ASK)
+[13:55:55] Got request 32 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:55] Sent Allow for request 32 (ASK)
+[13:55:55] Got request 33 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:55] Sent Allow for request 33 (ASK)
+[13:55:55] Got request 34 from Code.exe (136.71.105.51:443) pid=10388
+[13:55:55] Sent Allow for request 34 (ASK)
+[14:01:20] Got request 2 from curl.exe (2606:7100:1:67::26:443) pid=8808
+[14:01:20] Sent Allow for request 2 (ASK)
+[14:01:26] Got request 3 from curl.exe (2607:f8b0:4006:811::200e:443) pid=7596
+[14:01:26] Sent Allow for request 3 (ASK)
+[14:01:33] Got request 4 from curl.exe (2607:f8b0:4006:811::200e:443) pid=12992
+[14:01:33] Sent Allow for request 4 (ASK)
+[14:01:41] Got request 5 from curl.exe (2607:f8b0:4006:811::200e:443) pid=1804
+[14:01:41] Sent Block for request 5 (DENY)
+[14:01:48] Got request 7 from curl.exe (2607:f8b0:4006:800::200e:443) pid=2348
+[14:01:48] Sent Allow for request 7 (ASK)
+[14:02:05] Got request 8 from git-remote-https.exe (3.113.82.140:443) pid=11460
+[14:02:05] Sent Allow for request 8 (ASK)
+[14:02:27] Got request 9 from pwsh.exe (39.73.179.52:443) pid=12688
+[14:02:27] Sent Allow for request 9 (ASK)
+[14:02:44] Got request 11 from node.exe (2607:6bc0::10:443) pid=4240
+[14:02:44] Sent Allow for request 11 (ASK)
+[14:04:28] Got request 12 from Code.exe (213.143.182.52:443) pid=11068
+[14:04:28] Sent Allow for request 12 (ASK)
+[14:04:28] Got request 13 from vctip.exe (2600:141b:e800:74::173a:5571:443) pid=5168
+[14:04:28] Sent Allow for request 13 (ASK)
+[14:04:28] Got request 14 from MsMpEng.exe (197.71.211.48:443) pid=3940
+[14:04:28] Sent Allow for request 14 (ASK)
+[14:04:28] Got request 15 from Code.exe (213.143.182.52:443) pid=11068
+[14:04:28] Sent Allow for request 15 (ASK)
+[14:04:28] Got request 16 from MsMpEng.exe (197.71.211.48:443) pid=3940
+[14:04:28] Sent Allow for request 16 (ASK)
+[14:04:28] Got request 17 from vctip.exe (2600:141b:e800:74::173a:5571:443) pid=5168
+[14:04:28] Sent Allow for request 17 (ASK)
+[14:04:28] Got request 18 from MsMpEng.exe (197.71.211.48:443) pid=3940
+[14:04:28] Sent Allow for request 18 (ASK)
+[14:04:28] Got request 19 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:28] Sent Allow for request 19 (ASK)
+[14:04:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:31] Got request 20 from Code.exe (27.173.189.20:443) pid=11068
+[14:04:31] Sent Allow for request 20 (ASK)
+[14:04:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:32] Got request 21 from Code.exe (27.173.189.20:443) pid=11068
+[14:04:32] Sent Allow for request 21 (ASK)
+[14:04:32] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:34] Got request 22 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:34] Sent Allow for request 22 (ASK)
+[14:04:34] Got request 23 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:34] Sent Allow for request 23 (ASK)
+[14:04:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:35] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:36] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:37] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:39] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:40] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:40] Got request 24 from vctip.exe (3.173.189.20:443) pid=6760
+[14:04:40] Sent Allow for request 24 (ASK)
+[14:04:40] Got request 25 from vctip.exe (3.173.189.20:443) pid=6760
+[14:04:40] Sent Allow for request 25 (ASK)
+[14:04:41] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:41] Got request 26 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:41] Sent Allow for request 26 (ASK)
+[14:04:42] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:43] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:44] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:45] Got request 27 from Code.exe (27.173.189.20:443) pid=11068
+[14:04:45] Sent Allow for request 27 (ASK)
+[14:04:45] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:46] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:47] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:47] Got request 28 from Code.exe (27.173.189.20:443) pid=11068
+[14:04:47] Sent Allow for request 28 (ASK)
+[14:04:47] Got request 29 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:47] Sent Allow for request 29 (ASK)
+[14:04:48] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:49] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:50] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:50] Got request 30 from node.exe (2607:6bc0::10:443) pid=4240
+[14:04:50] Sent Allow for request 30 (ASK)
+[14:04:51] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:52] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:53] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:54] Got request 31 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:54] Sent Allow for request 31 (ASK)
+[14:04:54] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:55] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:56] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:57] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:58] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:04:59] Got request 32 from MpDefenderCoreService.exe (17.173.189.[2014:04:59:] TLM ERROR: 443) pid=3964
+The data area passed to a system call is too small. (os error 122)
+[14:04:59] Sent Allow for request 32 (ASK)
+[14:04:59] Got request 33 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:04:59] Sent Allow for request 33 (ASK)
+[14:05:00] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:01] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:02] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:03] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:04] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:05] Got request 34 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:05:05] Sent Allow for request 34 (ASK)
+[14:05:05] Got request 35 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:05:05] Sent Allow for request 35 (ASK)
+[14:05:05] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:06] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:07] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:08] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:09] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:10] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:11] Got request 36 from vctip.exe (3.173.189.20:443) pid=6760
+[14:05:11] Sent Allow for request 36 (ASK)
+[14:05:11] Got request 37 from vctip.exe (3.173.189.20:443) pid=6760
+[14:05:11] Sent Allow for request 37 (ASK)
+[14:05:11] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:13] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:13] Got request 38 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:05:13] Sent Allow for request 38 (ASK)
+[14:05:13] Got request 39 from WerFault.exe (244.160.234.135:443) pid=1664
+[14:05:13] Sent Allow for request 39 (ASK)
+[14:05:14] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:14] Got request 40 from svchost.exe (7.135.190.20:443) pid=4056
+[14:05:14] Sent Allow for request 40 (ASK)
+[14:05:15] Got request 41 from wermgr.exe (244.160.234.135:443) pid=1892
+[14:05:15] Sent Allow for request 41 (ASK)
+[14:05:15] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:15] Got request 42 from Code.exe (93.5.107.13:443) pid=10388
+[14:05:15] Sent Allow for request 42 (ASK)
+[14:05:16] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:17] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:18] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:19] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:20] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:20] Got request 43 from MpDefenderCoreService.exe (17.173.189.20:443) pid=3964
+[14:05:20] Sent Allow for request 43 (ASK)
+[14:05:21] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:21] Got request 44 from Code.exe (254.169.254.169:80) pid=11068
+[14:05:21] Sent Allow for request 44 (ASK)
+[14:05:21] Got request 45 from Code.exe (2620:1ec:29:1::40:443) pid=10388
+[14:05:21] Sent Allow for request 45 (ASK)
+[14:05:22] Got request 46 from Code.exe (93.5.107.13:443) pid=11068
+[14:05:22] Sent Allow for request 46 (ASK)
+[14:05:22] Got request 47 from Code.exe (2620:1ec:bdf::40:443) pid=10388
+[14:05:22] Sent Allow for request 47 (ASK)
+[14:05:22] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:23] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:24] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:25] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:26] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:26] Got request 48 from Code.exe (93.5.107.13:443) pid=11068
+[14:05:26] Sent Allow for request 48 (ASK)
+[14:05:27] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:28] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:28] Got request 49 from svchost.exe (2607:1640:72::89:80) pid=1752
+[14:05:28] Sent Allow for request 49 (ASK)
+[14:05:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:32] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:35] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:36] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:37] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:38] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:39] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:40] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:41] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:42] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:43] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:44] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:45] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:46] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:47] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:48] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:49] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:51] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:52] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:53] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:54] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:55] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:56] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:57] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:58] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:05:59] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:00] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:01] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:02] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:03] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:04] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:05] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:06] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:07] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:08] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:09] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:10] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:11] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:12] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:13] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:14] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:15] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:16] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:17] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:18] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:19] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:20] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:21] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:22] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:23] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:24] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:25] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:26] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:27] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:28] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:35] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:36] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:37] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:38] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:39] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:40] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:41] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:42] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:43] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:44] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:45] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:46] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:47] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:47] Got request 50 from git-remote-https.exe (3.113.82.140:443) pid=1644
+[14:06:47] Sent Allow for request 50 (ASK)
+[14:06:48] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:49] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:50] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:51] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:52] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:53] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:54] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:55] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:56] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:57] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:58] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:06:59] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:00] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:01] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:02] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:03] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:04] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:05] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:06] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:07] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:08] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:09] Got request 51 from curl.exe (2607:f8b0:4006:811::200e:443) pid=10036
+[14:07:09] Sent Allow for request 51 (ASK)
+[14:07:09] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:10] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:11] Got request 52 from curl.exe (2607:f8b0:4006:811::200e:443) pid=5456
+[14:07:11] Sent Allow for request 52 (ASK)
+[14:07:11] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:12] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:13] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:14] Got request 53 from curl.exe (2607:f8b0:4006:811::200e:443) pid=7220
+[14:07:14] Sent Allow for request 53 (ASK)
+[14:07:15] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:16] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:17] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:18] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:19] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:20] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:21] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:22] Got request 54 from Unknown (2607:f8b0:4006:811::200e:0) pid=4
+[14:07:22] Sent Allow for request 54 (ASK)
+[14:07:22] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:23] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:24] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:25] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:26] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:28] Got request 55 from pwsh.exe (37.73.179.52:443) pid=12688
+[14:07:28] Sent Allow for request 55 (ASK)
+[14:07:28] Got request 56 from Unknown (2607:f8b0:4006:811::200e:0) pid=4
+[14:07:28] Sent Allow for request 56 (ASK)
+[14:07:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:32] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:35] Got request 57 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:35] Sent Allow for request 57 (ASK)
+[14:07:35] Got request 58 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:35] Sent Allow for request 58 (ASK)
+[14:07:35] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:35] Got request 59 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:35] Sent Allow for request 59 (ASK)
+[14:07:35] Got request 60 from Unknown (2607:f8b0:4006:811::200e:0) pid=4
+[14:07:35] Sent Allow for request 60 (ASK)
+[14:07:36] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:37] Got request 61 from Code.exe (166.92.203.52:443) pid=11068
+[14:07:37] Sent Allow for request 61 (ASK)
+[14:07:37] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:38] Got request 62 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:38] Sent Allow for request 62 (ASK)
+[14:07:38] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:38] Got request 63 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:38] Sent Allow for request 63 (ASK)
+[14:07:39] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:40] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:40] Got request 64 from Unknown (2607:f8b0:4006:811::200e:0) pid=4
+[14:07:40] Sent Allow for request 64 (ASK)
+[14:07:41] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:42] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:43] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:44] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:45] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:46] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:47] Got request 65 from svchost.exe (2607:f8b0:4006:80d::2003:80) pid=1752
+[14:07:47] Sent Allow for request 65 (ASK)
+[14:07:47] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:48] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:49] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:50] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:50] Got request 66 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:50] Sent Allow for request 66 (ASK)
+[14:07:51] Got request 67 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:51] Sent Allow for request 67 (ASK)
+[14:07:51] Got request 68 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:51] Sent Allow for request 68 (ASK)
+[14:07:51] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:52] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:53] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:54] Got request 69 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:54] Sent Allow for request 69 (ASK)
+[14:07:54] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:54] Got request 70 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:54] Sent Allow for request 70 (ASK)
+[14:07:55] Got request 71 from Code.exe (105.193.132.51:443) pid=10388
+[14:07:55] Sent Allow for request 71 (ASK)
+[14:07:55] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:56] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:57] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:07:58] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:00] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:01] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:02] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:03] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:03] Got request 72 from svchost.exe (1.0.0.10:49152) pid=6080
+[14:08:03] Sent Allow for request 72 (ASK)
+[14:08:04] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:05] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:06] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:07] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:08] Got request 73 from svchost.exe (2620:1ec:46::40:443) pid=6080
+[14:08:08] Sent Allow for request 73 (ASK)
+[14:08:08] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:09] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:10] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:11] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:11] Got request 74 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:11] Sent Allow for request 74 (ASK)
+[14:08:12] Got request 75 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:12] Sent Allow for request 75 (ASK)
+[14:08:12] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:13] Got request 76 from OneDriveStandaloneUpdater.exe (2603:1063:27:2::14:443) pid=12088
+[14:08:13] Sent Allow for request 76 (ASK)
+[14:08:13] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:14] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:15] Got request 77 from Code.exe (105.193.132.51:443) pid=10388
+[14:08:15] Sent Allow for request 77 (ASK)
+[14:08:15] Got request 78 from Code.exe (105.193.132.51:443) pid=10388
+[14:08:15] Sent Allow for request 78 (ASK)
+[14:08:15] Got request 79 from Code.exe (105.193.132.51:443) pid=10388
+[14:08:15] Sent Allow for request 79 (ASK)
+[14:08:15] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:16] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:17[] Got request 14:08:17] TLM ERROR: 80 from OneDrive.exe (214The data area passed to a system call is too small.. (os error 80122.)50
+.20:443) pid=12240
+[14:08:17] Sent Allow for request 80 (ASK)
+[14:08:17] Got request 81 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:17] Sent Allow for request 81 (ASK)
+[14:08:17] Got request 82 from Code.exe (105.193.132.51:443) pid=10388
+[14:08:17] Sent Allow for request 82 (ASK)
+[14:08:18] Got request 83 from Code.exe (105.193.132.51:443) pid=10388
+[14:08:18] Sent Allow for request 83 (ASK)
+[14:08:18] Got request 84 from Code.exe (105.193.132.51:443) pid=10388
+[14:08:18] Sent Allow for request 84 (ASK)
+[14:08:18] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:19] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:20] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:21] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:22] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:23] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:23] Got request 85 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:23] Sent Allow for request 85 (ASK)
+[14:08:23] Got request 86 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:23] Sent Allow for request 86 (ASK)
+[14:08:24] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:25] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:26] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:27] Got request 87 from OneDrive.Sync.Service.exe (204.201.50.20:443) pid=6500
+[14:08:27] Sent Allow for request 87 (ASK)
+[14:08:27] Got request 88 from OneDrive.Sync.Service.exe (204.201.50.20:443) pid=6500
+[14:08:27] Sent Allow for request 88 (ASK)
+[14:08:27] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:28] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:30] Got request 89 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:30] Sent Allow for request 89 (ASK)
+[14:08:30] Got request 90 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:30] Sent Allow for request 90 (ASK)
+[14:08:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:08:36] Got request 91 from OneDrive.exe (214.80.50.20:443) pid=12240
+[14:08:36] Sent Allow for request 91 (ASK)
+[14:08:39] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:12] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:13] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:14] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:15] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:15] Got request 2 from curl.exe (2607:f8b0:4006:809::200e:443) pid=11956
+[14:12:15] Sent Allow for request 2 (ASK)
+[14:12:16] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:17] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:18] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:19] Got request 3 from curl.exe (2607:f8b0:4006:809::200e:443) pid=7308
+[14:12:19] Sent Allow for request 3 (ASK)
+[14:12:19] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:20] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:21] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:22] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:23] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:24] Got request 4 from curl.exe (2606:7100:1:67::26:80) pid=3280
+[14:12:24] Sent Allow for request 4 (ASK)
+[14:12:24] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:25] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:26] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:27] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:28] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:32] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:34] Got request 5 from curl.exe (2607:f8b0:4006:809::200e:443) pid=9988
+[14:12:34] Sent Allow for request 5 (ASK)
+[14:12:35] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:36] Got request 6 from curl.exe (2606:7100:1:67::26:80) pid=9556
+[14:12:36] Sent Allow for request 6 (ASK)
+[14:12:36] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:37] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:37] Got request 7 from curl.exe (2606:7100:1:67::26:80) pid=13208
+[14:12:37] Sent Allow for request 7 (ASK)
+[14:12:38] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:39] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:40] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:42] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:43] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:44] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:45] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:46] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:47] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:48] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:49] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:50] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:51] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:51] Got request 9 from curl.exe (2607:f8b0:4006:809::200e:443) pid=9372
+[14:12:51] Sent Block for request 9 (DENY)
+[14:12:52] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:53] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:54] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:55] Got request 10 from Code.exe (28.73[.14:12:5542] TLM ERROR: .The data area passed to a system call is too small.20 (os error :122443)) pid=
+10388
+[14:12:55] Sent Allow for request 10 (ASK)
+[14:12:55] Got request 11 from Code.exe (28.73.42.20:443) pid=10388
+[14:12:55] Sent Allow for request 11 (ASK)
+[14:12:55] Got request 12 from Code.exe (28.73.42.20:443) pid=10388
+[14:12:55] Sent Allow for request 12 (ASK)
+[14:12:55] Got request 13 from Code.exe (28.73.42.20:443) pid=10388
+[14:12:55] Sent Allow for request 13 (ASK)
+[14:12:56] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:57] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:58] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:59] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:12:59] Got request 14 from curl.exe (2607:f8b0:4006:809::200e:443) pid=2700
+[14:12:59] Sent Allow for request 14 (ASK)
+[14:13:00] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:01] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:02] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:03] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:04] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:05] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:06] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:07] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:08] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:09] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:10] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:11] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:12] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:13] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:14] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:15] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:16] Got request 15 from Code.exe (28.73.42.20:443) pid=10388
+[14:13:16] Sent Allow for request 15 (ASK)
+[14:13:16] Got request 16 from Code.exe (28.73.42.20:443) pid=10388
+[14:13:16] Sent Allow for request 16 (ASK)
+[14:13:16] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:17] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:18] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:19] Got request 17 from Code.exe (28.73.42.20:443) pid=10388
+[14:13:19] Sent Allow for request 17 (ASK)
+[14:13:19] Got request 18 from Code.exe (28.73.42.20:443) pid=10388
+[14:13:19] Sent Allow for request 18 (ASK)
+[14:13:20] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:21] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:22] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:23] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:24] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:25] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:26] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:27] Got request 19 from git-remote-https.exe (4.112.82.140:443) pid=11480
+[14:13:27] Sent Allow for request 19 (ASK)
+[14:13:27] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:28] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:28] Got request 20 from pwsh.exe (37.73.179.52:443) pid=12688
+[14:13:28] Sent Allow for request 20 (ASK)
+[14:13:29] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:30] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:31] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:32] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:33] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:34] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:35] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:36] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:37] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:38] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:40] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:41] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:13:42] TLM ERROR: The data area passed to a system call is too small. (os error 122)
+[14:18:43] TLM: 0 flows, sent=0, recv=0
+[14:18:44] TLM: 2 flows, sent=0, recv=152
+[14:18:45] TLM: 2 flows, sent=0, recv=152
+[14:18:46] TLM: 4 flows, sent=0, recv=937
+[14:18:47] TLM: 4 flows, sent=0, recv=1089
+[14:18:48] TLM: 4 flows, sent=0, recv=1089
+[14:18:49] TLM: 4 flows, sent=0, recv=1089
+[14:18:50] TLM: 8 flows, sent=1130, recv=2307
+[14:18:51] Got request 2 from curl.exe (2607:f8b0:4006:81e::200e:443) pid=6052
+[14:18:51] Sent Allow for request 2 (ASK)
+[14:18:51] TLM: 12 flows, sent=4344, recv=13259
+[14:18:52] TLM: 12 flows, sent=4344, recv=13259
+[14:18:53] Got request 4 from curl.exe (2606:7100:1:67::26:80) pid=1848
+[14:18:53] Sent Allow for request 4 (ASK)
+[14:18:53] TLM: 18 flows, sent=4912, recv=13900
+[14:18:54] TLM: 18 flows, sent=4912, recv=13900
+[14:18:55] TLM: 18 flows, sent=4912, recv=14020
+[14:18:55] Got request 5 from Unknown (2607:f8b0:4006:81e::200e:0) pid=4
+[14:18:55] Sent Allow for request 5 (ASK)
+[14:18:56] TLM: 18 flows, sent=4912, recv=14052
+[14:18:57] TLM: 18 flows, sent=4912, recv=14052
+[14:18:57] Got request 6 from vctip.exe (226.162.46.104:443) pid=5168
+[14:18:57] Sent Allow for request 6 (ASK)
+[14:18:58] Got request 7 from vctip.exe (226.162.46.104:443) pid=5168
+[14:18:58] Sent Allow for request 7 (ASK)
+[14:18:58] TLM: 21 flows, sent=5132, recv=14569
+[14:18:59] TLM: 22 flows, sent=5153, recv=14601
+[14:19:00] TLM: 22 flows, sent=5153, recv=14601
+[14:19:00] Got request 9 from Unknown (2607:f8b0:4006:81e::200e:0) pid=4
+[14:19:00] Sent Allow for request 9 (ASK)
+[14:19:01] TLM: 22 flows, sent=5153, recv=14721
+[14:19:02] TLM: 22 flows, sent=5153, recv=14753
+[14:19:03] TLM: 22 flows, sent=5153, recv=15538
+[14:19:04] TLM: 22 flows, sent=5153, recv=15658
+[14:19:05] TLM: 22 flows, sent=5153, recv=15690
+[14:19:06] TLM: 23 flows, sent=5193, recv=15730
+[14:19:07] TLM: 24 flows, sent=5233, recv=15890
+[14:19:08] TLM: 26 flows, sent=5313, recv=16747
+[14:19:09] TLM: 27 flows, sent=5353, recv=16787
+[14:19:10] TLM: 28 flows, sent=5393, recv=16987
+[14:19:11] TLM: 29 flows, sent=5433, recv=17059
+[14:19:12] TLM: 31 flows, sent=5433, recv=17399
+[14:19:13] TLM: 31 flows, sent=5433, recv=18676
+[14:19:14] TLM: 31 flows, sent=5433, recv=19016
+[14:19:16] TLM: 31 flows, sent=5433, recv=19356
+[14:19:17] TLM: 31 flows, sent=5433, recv=19508
+[14:19:18] TLM: 31 flows, sent=5433, recv=19508
+[14:19:19] TLM: 31 flows, sent=5433, recv=19508
+[14:19:20] TLM: 31 flows, sent=5433, recv=19660
+[14:19:21] TLM: 31 flows, sent=5433, recv=19660
+[14:19:22] TLM: 31 flows, sent=5433, recv=19660
+[14:19:23] TLM: 31 flows, sent=5433, recv=19780
+[14:19:24] TLM: 31 flows, sent=5433, recv=19812
+[14:19:25] TLM: 31 flows, sent=5433, recv=20597
+[14:19:26] TLM: 31 flows, sent=5433, recv=20717
+[14:19:27] TLM: 31 flows, sent=5433, recv=20749
+[14:19:28] TLM: 31 flows, sent=5433, recv=20749
+[14:19:28] Got request 10 from pwsh.exe (59.73.179.52:443) pid=12688
+[14:19:28] Sent Allow for request 10 (ASK)
+[14:19:29] TLM: 32 flows, sent=6999, recv=26703
+[14:19:30] TLM: 32 flows, sent=6999, recv=27520
+[14:19:31] TLM: 32 flows, sent=6999, recv=27520
+[14:19:32] TLM: 32 flows, sent=6999, recv=27672
+[14:19:33] TLM: 32 flows, sent=6999, recv=27672
+[14:19:34] TLM: 33 flows, sent=7031, recv=27704
+[14:19:35] TLM: 33 flows, sent=7031, recv=28641
+[14:19:36] TLM: 33 flows, sent=7031, recv=28641
+[14:19:37] TLM: 33 flows, sent=7031, recv=28641
+[14:19:38] TLM: 33 flows, sent=7031, recv=28793
+[14:19:39] TLM: 33 flows, sent=7031, recv=28793
+[14:19:40] TLM: 33 flows, sent=7031, recv=28913
+[14:19:41] TLM: 33 flows, sent=7031, recv=28945
+[14:19:42] Got request 11 from svchost.exe (2600:141b:e800:b::172c:8310:80) pid=1752
+[14:19:42] Sent Allow for request 11 (ASK)
+[14:19:42] TLM: 34 flows, sent=7129, recv=30111
+[14:19:43] TLM: 34 flows, sent=7129, recv=32037
+[14:19:44] TLM: 34 flows, sent=7129, recv=32069
+[14:19:45] TLM: 34 flows, sent=7129, recv=32069
+[14:19:46] TLM: 34 flows, sent=7129, recv=32189
+[14:19:47] TLM: 34 flows, sent=7129, recv=33006
+[14:19:48] TLM: 34 flows, sent=7129, recv=33006
+[14:19:49] TLM: 34 flows, sent=7129, recv=33158
+[14:19:50] TLM: 34 flows, sent=7129, recv=33158
+[14:19:51] TLM: 34 flows, sent=7129, recv=33158
+[14:19:52] TLM: 34 flows, sent=7129, recv=34063
+[14:19:53] TLM: 34 flows, sent=7129, recv=34095
+[14:19:54] TLM: 34 flows, sent=7129, recv=34095
+[14:19:55] TLM: 34 flows, sent=7129, recv=34215
+[14:19:56] TLM: 34 flows, sent=7129, recv=34247
+[14:19:58] TLM: 34 flows, sent=7129, recv=35032
+[14:19:59] TLM: 34 flows, sent=7129, recv=35184
+[14:20:00] TLM: 34 flows, sent=7129, recv=35184
+[14:20:01] TLM: 34 flows, sent=7129, recv=35184
+[14:20:02] TLM: 34 flows, sent=7129, recv=35304
+[14:20:03] TLM: 34 flows, sent=7129, recv=35336
+[14:20:04] TLM: 34 flows, sent=7129, recv=35336
+[14:20:04] Got request 12 from git-remote-https.exe (4.114.82.140:443) pid=5476
+[14:20:04] Sent Allow for request 12 (ASK)
+[14:20:05] TLM: 37 flows, sent=9218, recv=40469
+[14:20:06] TLM: 37 flows, sent=9218, recv=40501
+[14:20:06] Got request 13 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:06] Sent Allow for request 13 (ASK)
+[14:20:07] Got request 14 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:07] Sent Allow for request 14 (ASK)
+[14:20:07] TLM: 44 flows, sent=9528, recv=41136
+[14:20:07] Got request 15 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:07] Sent Allow for request 15 (ASK)
+[14:20:08] TLM: 45 flows, sent=9600, recv=41288
+[14:20:09] TLM: 45 flows, sent=9600, recv=42073
+[14:20:09] Got request 16 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:09] Sent Allow for request 16 (ASK)
+[14:20:10] Got request 17 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:10] Sent Allow for request 17 (ASK)
+[14:20:10] Got request 18 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:10] Sent Allow for request 18 (ASK)
+[14:20:10] TLM: 49 flows, sent=9808, recv=42073
+[14:20:10] Got request 19 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:10] Sent Allow for request 19 (ASK)
+[14:20:10] Got request 20 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:10] Sent Allow for request 20 (ASK)
+[14:20:11] Got request 21 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:11] Sent Allow for request 21 (ASK)
+[14:20:11] TLM: 53 flows, sent=10016, recv=42225
+[14:20:12] TLM: 53 flows, sent=10016, recv=42225
+[14:20:13] Got request 22 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:13] Sent Allow for request 22 (ASK)
+[14:20:13] Got request 23 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:13] Sent Allow for request 23 (ASK)
+[14:20:13] TLM: 57 flows, sent=10192, recv=42288
+[14:20:13] Got request 24 from WerFault.exe (244.160.234.135:443) pid=6836
+[14:20:13] Sent Allow for request 24 (ASK)
+[14:20:14] TLM: 58 flows, sent=10380, recv=43622
+[14:20:14] Got request 25 from wermgr.exe (244.160.234.135:443) pid=224
+[14:20:14] Sent Allow for request 25 (ASK)
+[14:20:14] Got request 26 from wermgr.exe (244.160.234.135:443) pid=224
+[14:20:14] Sent Allow for request 26 (ASK)
+[14:20:15] TLM: 60 flows, sent=10524, recv=43622
+[14:20:16] TLM: 60 flows, sent=10524, recv=43742
+[14:20:17] TLM: 60 flows, sent=10524, recv=43774
+[14:20:18] TLM: 60 flows, sent=10524, recv=43774
+[14:20:19] TLM: 60 flows, sent=10556, recv=44711
+[14:20:20] TLM: 60 flows, sent=10556, recv=44743
+[14:20:21] Got request 27 from Code.exe (254.169.254.169:80) pid=11068
+[14:20:21] Sent Allow for request 27 (ASK)
+[14:20:21] TLM: 61 flows, sent=10588, recv=44743
+[14:20:22] Got request 28 from Code.exe (2620:1ec:48:1::40:443) pid=10388
+[14:20:22] Sent Allow for request 28 (ASK)
+[14:20:22] TLM: 64 flows, sent=10755, recv=45646
+[14:20:24] TLM: 64 flows, sent=10755, recv=45646
+[14:20:25] TLM: 64 flows, sent=10755, recv=45646
+[14:20:26] Got request 29 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:26] Sent Allow for request 29 (ASK)
+[14:20:26] TLM: 64 flows, sent=10755, recv=45766
+[14:20:27] TLM: 64 flows, sent=10755, recv=45798
+[14:20:28] TLM: 64 flows, sent=10755, recv=45798
+[14:20:28] Got request 30 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:28] Sent Allow for request 30 (ASK)
+[14:20:28] Got request 31 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:28] Sent Allow for request 31 (ASK)
+[14:20:29] Got request 32 from Code.exe (13.173.189.20:443) pid=10388
+[14:20:29] Sent Allow for request 32 (ASK)
+[14:20:29] TLM: 64 flows, sent=11435, recv=46396
+[14:20:30] TLM: 64 flows, sent=11435, recv=46428
+[14:20:31] TLM: 64 flows, sent=11435, recv=47213
+[14:20:32] TLM: 64 flows, sent=11435, recv=47365
+[14:20:33] Got request 33 from MpDefenderCoreService.exe (2603:1063:27:2::14:443) pid=3964
+[14:20:33] Sent Allow for request 33 (ASK)
+[14:20:33] TLM: 64 flows, sent=11515, recv=47815
+[14:20:36] TLM: 64 flows, sent=11515, recv=48752
+[14:20:37] TLM: 64 flows, sent=11515, recv=48752
+[14:20:38] TLM: 64 flows, sent=11515, recv=48904
+[14:20:39] TLM: 64 flows, sent=11515, recv=48904
+[14:20:40] Got request 34 from svchost.exe (9.157.190.20:443) pid=2788
+[14:20:40] Sent Allow for request 34 (ASK)
+[14:20:40] TLM: 64 flows, sent=11595, recv=49593
+[14:20:40] Got request 35 from taskhostw.exe (196.249.167.52:443) pid=10828
+[14:20:40] Sent Allow for request 35 (ASK)
+[14:20:41] TLM: 64 flows, sent=11709, recv=50814
+[14:20:42] Got request 36 from taskhostw.exe (196.249.167.52:443) pid=10828
+[14:20:42] Sent Allow for request 36 (ASK)
+[14:20:42] TLM: 64 flows, sent=11709, recv=50814
+[14:20:42] Got request 37 from svchost.exe (2a04:4e42:4e::684:80) pid=1752
+[14:20:42] Sent Allow for request 37 (ASK)
+[14:20:43] TLM: 64 flows, sent=11807, recv=51376
+[14:20:44] TLM: 64 flows, sent=11807, recv=51408
+[14:20:45] TLM: 64 flows, sent=11807, recv=51408
+[14:20:46] TLM: 64 flows, sent=11807, recv=51560
+[14:20:47] TLM: 64 flows, sent=11807, recv=51560
+[14:20:48] TLM: 64 flows, sent=11807, recv=51560
+[14:20:49] TLM: 64 flows, sent=11807, recv=51712
+[14:20:50] TLM: 64 flows, sent=11807, recv=52594
+[14:20:52] TLM: 64 flows, sent=11807, recv=53659
+[14:20:53] TLM: 64 flows, sent=11807, recv=54596
+[14:20:54] TLM: 64 flows, sent=11807, recv=54596
+[14:20:55] TLM: 64 flows, sent=11807, recv=54596
+[14:20:56] TLM: 64 flows, sent=11807, recv=54748
+[14:20:57] TLM: 64 flows, sent=11807, recv=54748
+[14:20:58] TLM: 64 flows, sent=11807, recv=55533
+[14:20:59] TLM: 64 flows, sent=11807, recv=55685
+[14:21:00] TLM: 64 flows, sent=11807, recv=55685
+[14:21:01] TLM: 64 flows, sent=11807, recv=55685
+[14:21:02] TLM: 64 flows, sent=11807, recv=55837
+[14:21:03] TLM: 64 flows, sent=11807, recv=56622
+[14:21:04] TLM: 64 flows, sent=11807, recv=56622
+[14:21:05] TLM: 64 flows, sent=11807, recv=56774
+[14:21:05] Got request 38 from Code.exe (13.173.189.20:443) pid=10388
+[14:21:05] Sent Allow for request 38 (ASK)
+[14:21:05] Got request 39 from Code.exe (13.173.189.20:443) pid=10388
+[14:21:05] Sent Allow for request 39 (ASK)
+[14:21:05] Got request 40 from Code.exe (13.173.189.20:443) pid=10388
+[14:21:05] Sent Allow for request 40 (ASK)
+[14:21:06] TLM: 64 flows, sent=11807, recv=56774
+[14:21:07] TLM: 64 flows, sent=11807, recv=56774
+[14:21:08] Got request 41 from Code.exe (123.10.44.20:443) pid=10388
+[14:21:08] Sent Allow for request 41 (ASK)
+[14:21:08] Got request 42 from Code.exe (123.10.44.20:443) pid=10388
+[14:21:08] Sent Allow for request 42 (ASK)
+[14:21:08] TLM: 64 flows, sent=11807, recv=56926
+[14:21:09] TLM: 64 flows, sent=11807, recv=56926
+[14:21:10] TLM: 64 flows, sent=11807, recv=57046
+[14:21:11] TLM: 64 flows, sent=11807, recv=57078
+[14:21:12] TLM: 64 flows, sent=11807, recv=57078
+[14:21:13] TLM: 64 flows, sent=11839, recv=57262
+[14:21:14] TLM: 64 flows, sent=11839, recv=57262
+[14:21:15] TLM: 64 flows, sent=11839, recv=58047
+[14:21:16] TLM: 64 flows, sent=11839, recv=58167
+[14:21:17] TLM: 64 flows, sent=11839, recv=58199
+[14:21:18] TLM: 64 flows, sent=11839, recv=58199
+[14:21:19] TLM: 64 flows, sent=11839, recv=58351
+[14:21:21] TLM: 64 flows, sent=11839, recv=59136
+[14:21:22] TLM: 64 flows, sent=11839, recv=59136
+[14:21:23] TLM: 64 flows, sent=11839, recv=59288
+[14:21:24] TLM: 64 flows, sent=11839, recv=59288
+[14:21:25] TLM: 64 flows, sent=11839, recv=60073
+[14:21:26] TLM: 64 flows, sent=11839, recv=60225
+[14:21:27] TLM: 64 flows, sent=11839, recv=60225
+[14:21:28] TLM: 64 flows, sent=11839, recv=60341
+[14:21:29] TLM: 64 flows, sent=11839, recv=60609
+[14:21:30] TLM: 64 flows, sent=11839, recv=60609
+[14:21:31] TLM: 64 flows, sent=11839, recv=60609
+[14:21:32] TLM: 64 flows, sent=11839, recv=60729
+[14:21:33] TLM: 64 flows, sent=11839, recv=60761
+[14:21:34] TLM: 64 flows, sent=11839, recv=60761
+[14:21:35] TLM: 64 flows, sent=11839, recv=60913
+[14:21:36] TLM: 64 flows, sent=11839, recv=60913
+[14:21:37] TLM: 64 flows, sent=11839, recv=61698
+[14:21:38] TLM: 64 flows, sent=11839, recv=61850
+[14:21:39] TLM: 64 flows, sent=11839, recv=61850
+[14:21:40] TLM: 64 flows, sent=11839, recv=61850
+[14:21:41] TLM: 64 flows, sent=11839, recv=62002
+[14:21:42] TLM: 64 flows, sent=11839, recv=62787
+[14:21:43] TLM: 64 flows, sent=11879, recv=63330
+[14:21:44] TLM: 64 flows, sent=11879, recv=64181
+[14:21:45] Got request 43 from MpDefenderCoreService.exe (2603:1063:27:2::14:443) pid=3964
+[14:21:45] Sent Allow for request 43 (ASK)
+[14:21:45] TLM: 64 flows, sent=11879, recv=64181
+[14:21:46] TLM: 64 flows, sent=11879, recv=64301
+[14:21:47] TLM: 64 flows, sent=11879, recv=65118
+[14:21:48] Got request 44 from node.exe (2607:6bc0::10:443) pid=8080
+[14:21:48] Sent Allow for request 44 (ASK)
+[14:21:48] TLM: 64 flows, sent=11965, recv=65232
+[14:21:49] TLM: 64 flows, sent=11997, recv=65384
+[14:21:50] TLM: 64 flows, sent=11997, recv=65416
+[14:21:54] Got request 45 from Code.exe (166.92.203.52:443) pid=11068
+[14:21:54] Sent Allow for request 45 (ASK)
+[14:21:54] TLM: 64 flows, sent=12085, recv=65910
+[14:31:11] TLM: 1 flows, sent=0, recv=120
+[14:31:12] TLM: 5 flows, sent=32, recv=524
+[14:31:13] TLM: 5 flows, sent=32, recv=864
+[14:31:14] TLM: 7 flows, sent=32, recv=2109
+[14:31:15] TLM: 7 flows, sent=32, recv=2481
+[14:31:16] TLM: 7 flows, sent=32, recv=2481
+[14:31:17] TLM: 7 flows, sent=32, recv=2601
+[14:31:18] TLM: 7 flows, sent=32, recv=2633
+[14:31:19] TLM: 7 flows, sent=32, recv=3418
+[14:31:20] TLM: 7 flows, sent=32, recv=3570
+[14:31:22] TLM: 7 flows, sent=32, recv=3570
+[14:31:23] TLM: 7 flows, sent=32, recv=3570
+[14:31:24] TLM: 7 flows, sent=32, recv=3722
+[14:31:25] TLM: 7 flows, sent=32, recv=3722
+[14:31:26] TLM: 7 flows, sent=32, recv=3722
+[14:31:26] Got request 3 from Code.exe (95.16.208.104:443) pid=10388
+[14:31:26] Sent Allow for request 3 (ASK)
+[14:31:26] Got request 4 from Code.exe (95.16.208.104:443) pid=10388
+[14:31:26] Sent Allow for request 4 (ASK)
+[14:31:27] TLM: 12 flows, sent=310, recv=4475
+[14:31:28] TLM: 12 flows, sent=310, recv=4475
+[14:31:29] TLM: 12 flows, sent=310, recv=4595
+[14:31:29] Got request 5 from Code.exe (95.16.208.104:443) pid=10388
+[14:31:29] Sent Allow for request 5 (ASK)
+[14:31:30] Got request 6 from Code.exe (95.16.208.104:443) pid=10388
+[14:31:30] Sent Allow for request 6 (ASK)
+[14:31:30] TLM: 14 flows, sent=414, recv=4627
+[14:31:31] TLM: 14 flows, sent=414, recv=4627
+[14:31:32] TLM: 14 flows, sent=414, recv=5564
+[14:31:33] TLM: 14 flows, sent=414, recv=5564
+[14:31:34] TLM: 14 flows, sent=414, recv=5564
+[14:31:35] TLM: 14 flows, sent=414, recv=5684
+[14:31:36] TLM: 14 flows, sent=414, recv=6501
+[14:31:37] TLM: 14 flows, sent=414, recv=6501
+[14:31:38] TLM: 14 flows, sent=414, recv=6621
+[14:31:39] TLM: 14 flows, sent=414, recv=6653
+[14:31:40] TLM: 14 flows, sent=414, recv=6653
+[14:31:41] TLM: 14 flows, sent=414, recv=7558
+[14:31:42] TLM: 14 flows, sent=414, recv=7590
+[14:31:43] TLM: 15 flows, sent=435, recv=7590
+[14:31:44] TLM: 16 flows, sent=519, recv=7742
+[14:31:45] TLM: 16 flows, sent=519, recv=7742
+[14:31:45] Got request 10 from MpDefenderCoreService.exe (2603:1063:27:2::14:443) pid=3964
+[14:31:45] Sent Allow for request 10 (ASK)
+[14:31:46] TLM: 17 flows, sent=2342, recv=15142
+[14:31:47] TLM: 19 flows, sent=2342, recv=16140
+[14:31:48] TLM: 19 flows, sent=2342, recv=17778
+[14:31:49] TLM: 19 flows, sent=2342, recv=17778
+[14:31:50] TLM: 19 flows, sent=2342, recv=17930
+[14:31:52] TLM: 19 flows, sent=2342, recv=17930
+[14:31:53] TLM: 19 flows, sent=2342, recv=17930
+[14:31:53] Got request 11 from node.exe (2607:6bc0::10:443) pid=12780
+[14:31:53] Sent Allow for request 11 (ALLOW)
+[14:31:54] TLM: 23 flows, sent=40375, recv=35370
+[14:31:55] TLM: 23 flows, sent=40396, recv=35370
+[14:31:56] TLM: 23 flows, sent=40497, recv=38599
+[14:31:57] TLM: 23 flows, sent=40778, recv=41619
+[14:31:58] TLM: 23 flows, sent=45219, recv=45670
+[14:31:59] TLM: 23 flows, sent=45371, recv=49891
+[14:32:00] TLM: 24 flows, sent=92404, recv=54902
+[14:32:01] TLM: 24 flows, sent=92425, recv=54902
+[14:32:02] TLM: 24 flows, sent=92446, recv=55022
+[14:32:03] TLM: 24 flows, sent=92747, recv=58615
+[14:32:04] TLM: 25 flows, sent=97279, recv=67426
+[14:32:05] TLM: 25 flows, sent=97640, recv=70734
+[14:32:06] TLM: 25 flows, sent=97961, recv=73984
+[14:32:07] Got request 12 from git-remote-https.exe (3.113.82.140:443) pid=3648
+[14:32:07] Sent Allow for request 12 (ASK)
+[14:32:07] TLM: 30 flows, sent=98580, recv=77641
+[14:32:08] TLM: 30 flows, sent=100672, recv=86078
+[14:32:08] Got request 13 from node.exe (2600:1901:0:3084:::443) pid=12780
+[14:32:08] Sent Allow for request 13 (ASK)
+[14:32:09] TLM: 31 flows, sent=104124, recv=93845
+[14:32:10] TLM: 31 flows, sent=104405, recv=97054
+[14:32:11] TLM: 31 flows, sent=104746, recv=100591
+[14:32:12] TLM: 31 flows, sent=105047, recv=103631
+[14:32:13] TLM: 31 flows, sent=105068, recv=103631
+[14:32:14] Got request 14 from Code.exe (95.16.208.104:443) pid=10388
+[14:32:14] Sent Allow for request 14 (ASK)
+[14:32:14] Got request 15 from Code.exe (95.16.208.104:443) pid=10388
+[14:32:14] Sent Allow for request 15 (ASK)
+[14:32:14] TLM: 33 flows, sent=105212, recv=103775
+[14:32:15] TLM: 33 flows, sent=105452, recv=108851
+[14:32:16] Got request 16 from node.exe (2607:6bc0::10:443) pid=12780
+[14:32:16] Sent Allow for request 16 (ALLOW)
+[14:32:16] TLM: 35 flows, sent=108444, recv=120633
+[14:32:17] TLM: 35 flows, sent=108465, recv=125109
+[14:32:17] Got request 17 from Code.exe (95.16.208.104:443) pid=10388
+[14:32:17] Sent Allow for request 17 (ASK)
+[14:32:18] Got request 18 from Code.exe (95.16.208.104:443) pid=10388
+[14:32:18] Sent Allow for request 18 (ASK)
+[14:32:18] TLM: 37 flows, sent=108590, recv=126055
+[14:32:20] TLM: 37 flows, sent=108971, recv=132232
+[14:32:21] TLM: 37 flows, sent=109132, recv=135505
+[14:32:22] TLM: 37 flows, sent=109172, recv=135505
+[14:32:23] TLM: 37 flows, sent=109172, recv=135505
+[14:32:23] Got request 19 from node.exe (2607:6bc0::10:443) pid=12780
+[14:32:23] Sent Allow for request 19 (ALLOW)
+[14:32:24] TLM: 38 flows, sent=110981, recv=140371
+[14:32:25] TLM: 38 flows, sent=111002, recv=140371
+[14:32:26] TLM: 38 flows, sent=111023, recv=141276
+[14:32:27] TLM: 38 flows, sent=111044, recv=141308
+[14:32:28] TLM: 38 flows, sent=111345, recv=145575
+[14:32:29] TLM: 38 flows, sent=111746, recv=151692
+[14:32:30] TLM: 38 flows, sent=111746, recv=151724
+[14:32:31] TLM: 38 flows, sent=112026, recv=162140
+[14:32:32] TLM: 38 flows, sent=112306, recv=165498
+[14:32:33] TLM: 38 flows, sent=112366, recv=166008
+[14:32:34] TLM: 38 flows, sent=112486, recv=168111
+[14:32:35] TLM: 38 flows, sent=113546, recv=195715
+[14:32:36] TLM: 38 flows, sent=113566, recv=195715
+[14:32:37] TLM: 38 flows, sent=113566, recv=196500
+[14:32:38] TLM: 38 flows, sent=113566, recv=196824
+[14:32:39] TLM: 38 flows, sent=114706, recv=227278
+[14:32:40] TLM: 38 flows, sent=116086, recv=227278
+[14:32:41] TLM: 38 flows, sent=116086, recv=227398
+[14:32:42] TLM: 38 flows, sent=116206, recv=231461
+[14:32:43] TLM: 38 flows, sent=116549, recv=235609
+[14:32:44] TLM: 39 flows, sent=121021, recv=240611
+[14:32:45] TLM: 39 flows, sent=121382, recv=246072
+[14:32:46] TLM: 39 flows, sent=121403, recv=246072
+[14:32:47] TLM: 39 flows, sent=121424, recv=246977
+[14:32:48] TLM: 41 flows, sent=121631, recv=247155
+[14:32:49] TLM: 41 flows, sent=122115, recv=247479
+[14:32:51] TLM: 42 flows, sent=125339, recv=250195
+[14:32:52] TLM: 42 flows, sent=125360, recv=250195
+[14:32:53] TLM: 42 flows, sent=125637, recv=250670
+[14:32:53] Got request 20 from Code.exe (16.173.189.20:443) pid=11068
+[14:32:53] Sent Allow for request 20 (ASK)
+[14:32:53] Got request 21 from node.exe (2600:1901:0:3084:::443) pid=12780
+[14:32:53] Sent Allow for request 21 (ASK)
+[14:32:54] TLM: 46 flows, sent=128958, recv=256394
+[14:32:55] TLM: 46 flows, sent=129930, recv=257124
+[14:32:56] TLM: 50 flows, sent=134944, recv=261155
+[14:32:56] Got request 22 from Code.exe (16.173.189.20:443) pid=11068
+[14:32:56] Sent Allow for request 22 (ASK)
+[14:32:57] TLM: 51 flows, sent=135968, recv=261917
+[14:32:58] TLM: 51 flows, sent=136010, recv=261917
+[14:32:59] TLM: 51 flows, sent=136443, recv=263170
+[14:33:00] Got request 23 from node.exe (2607:6bc0::10:443) pid=12780
+[14:33:00] Sent Allow for request 23 (ALLOW)
+[14:33:00] TLM: 52 flows, sent=169842, recv=267241
+[14:33:01] TLM: 52 flows, sent=169882, recv=267241
+[14:33:02] TLM: 53 flows, sent=172794, recv=272373
+[14:33:03] Got request 24 from Code.exe (131.72.42.20:443) pid=11068
+[14:33:03] Sent Allow for request 24 (ASK)
+[14:33:03] TLM: 54 flows, sent=173303, recv=276016
+[14:33:04] TLM: 54 flows, sent=173644, recv=280554
+[14:33:05] TLM: 54 flows, sent=173985, recv=283779
+[14:33:06] Got request 25 from Code.exe (131.72.42.20:443) pid=11068
+[14:33:06] Sent Allow for request 25 (ASK)
+[14:33:06] TLM: 55 flows, sent=178478, recv=286038
+[14:33:07] TLM: 55 flows, sent=178518, recv=286038
+[14:33:08] TLM: 55 flows, sent=178558, recv=286182
+[14:33:09] TLM: 55 flows, sent=178838, recv=292068
+[14:33:11] TLM: 55 flows, sent=179158, recv=295498
+[14:33:11] Got request 26 from node.exe (2607:6bc0::10:443) pid=12780
+[14:33:11] Sent Allow for request 26 (ALLOW)
+[14:33:12] TLM: 56 flows, sent=182510, recv=304217
+[14:33:51] Got request 27 from MsMpEng.exe (26.160.178.172:443) pid=3940
+[14:33:51] Sent Allow for request 27 (ASK)
+[14:33:51] Got request 28 from vctip.exe (78.239.69.13:443) pid=5168
+[14:33:51] Sent Allow for request 28 (ASK)
+[14:33:51] Got request 29 from Code.exe (4.173.189.20:443) pid=11068
+[14:33:51] Sent Allow for request 29 (ASK)
+[14:33:51] Got request 30 from MsMpEng.exe (26.160.178.172:443) pid=3940
+[14:33:51] Sent Allow for request 30 (ASK)
+[14:33:51] Got request 31 from MsMpEng.exe (26.160.178.172:443) pid=3940
+[14:33:51] Sent Allow for request 31 (ASK)
+[14:33:51] Got request 32 from vctip.exe (78.239.69.13:443) pid=5168
+[14:33:51] Sent Allow for request 32 (ASK)
+[14:33:52] TLM: 64 flows, sent=193061, recv=328437
+[14:33:53] TLM: 64 flows, sent=193061, recv=328437
+[14:33:54] Got request 33 from Code.exe (91.65.42.20:443) pid=11068
+[14:33:54] Sent Allow for request 33 (ASK)
+[14:34:01] Got request 34 from Unknown (255.0.0.10:137) pid=4
+[14:34:01] Sent Allow for request 34 (ASK)
+[14:34:07] Got request 35 from curl.exe (2607:f8b0:4006:811::200e:443) pid=9192
+[14:34:07] Sent Allow for request 35 (ASK)
+[14:34:11] TLM: 64 flows, sent=193469, recv=332690
+[14:34:12] TLM: 64 flows, sent=193469, recv=332722
+[14:34:13] TLM: 64 flows, sent=193469, recv=332722
+[14:34:14] TLM: 64 flows, sent=193469, recv=332874
+[14:34:15] TLM: 64 flows, sent=193469, recv=333659
+[14:34:16] TLM: 64 flows, sent=193469, recv=333659
+[14:34:17] TLM: 64 flows, sent=193469, recv=333779
+[14:34:18] TLM: 64 flows, sent=193469, recv=333811
+[14:34:19] Got request 36 from curl.exe (2607:f8b0:4006:811::200e:443) pid=2756
+[14:34:19] Sent Allow for request 36 (ASK)
+[14:34:19] TLM: 64 flows, sent=193469, recv=333811
+[14:34:20] TLM: 64 flows, sent=193469, recv=333931
+[14:34:21] TLM: 64 flows, sent=193469, recv=333963
+[14:34:22] TLM: 64 flows, sent=193469, recv=333963
+[14:34:23] Got request 37 from curl.exe (2606:7100:1:67[::14:34:2326] TLM: :6480 flows, sent=) pid=1935614860, recv=
+334083
+[14:34:23] Sent Allow for request 37 (ASK)
+[14:34:24] TLM: 64 flows, sent=193561, recv=334115
+[14:34:25] TLM: 64 flows, sent=193593, recv=334147
+[14:34:26] TLM: 64 flows, sent=193593, recv=334267
+[14:34:27] TLM: 64 flows, sent=193593, recv=335084
+[14:34:28] TLM: 64 flows, sent=193593, recv=335084
+[14:34:29] TLM: 64 flows, sent=193593, recv=335204
+[14:34:30] TLM: 64 flows, sent=193593, recv=335236
+[14:34:31] TLM: 64 flows, sent=193593, recv=335236
+[14:34:32] TLM: 64 flows, sent=193593, recv=336173
+[14:34:33] TLM: 64 flows, sent=193593, recv=336173
+[14:34:35] TLM: 64 flows, sent=193593, recv=336173
+[14:34:36] TLM: 64 flows, sent=193593, recv=336325
+[14:34:37] TLM: 64 flows, sent=193593, recv=336325
+[14:34:38] TLM: 64 flows, sent=193593, recv=337110
+[14:34:39] TLM: 64 flows, sent=193593, recv=337230
+[14:34:40] TLM: 64 flows, sent=193593, recv=337262
+[14:34:41] TLM: 64 flows, sent=193593, recv=337262
+[14:34:42] TLM: 64 flows, sent=193593, recv=337414
+[14:34:43] TLM: 64 flows, sent=193593, recv=337414
+[14:34:44] TLM: 64 flows, sent=193593, recv=337414
+[14:34:45] TLM: 64 flows, sent=193593, recv=337566
+[14:34:46] TLM: 64 flows, sent=193593, recv=337566
+[14:34:47] TLM: 64 flows, sent=193593, recv=337566
+[14:34:47] Got request 39 from curl.exe (2607:f8b0:4006:811::200e:443) pid=6380
+[14:34:47] Sent Block for request 39 (DENY)
+[14:34:48] TLM: 64 flows, sent=193593, recv=337718
+[14:34:49] TLM: 64 flows, sent=193593, recv=337718
+[14:34:50] TLM: 64 flows, sent=193593, recv=338623
+[14:34:51] TLM: 64 flows, sent=193593, recv=338655
+[14:34:52] TLM: 64 flows, sent=193593, recv=338655
+[14:34:53] TLM: 64 flows, sent=193593, recv=338807
+[14:34:54] TLM: 64 flows, sent=193593, recv=339592
+[14:34:55] TLM: 64 flows, sent=193593, recv=339592
+[14:34:56] TLM: 64 flows, sent=194104, recv=340686
+[14:34:57] TLM: 64 flows, sent=195193, recv=342848
+[14:34:58] Got request 40 from curl.exe (2607:f8b0:4006:811::200e:443) pid=6304
+[14:34:58] Sent Allow for request 40 (ASK)
+[14:34:58] TLM: 64 flows, sent=195193, recv=342848
+[14:34:59] TLM: 64 flows, sent=195193, recv=343753
+[14:35:01] TLM: 64 flows, sent=195193, recv=343785
+[14:35:02] TLM: 64 flows, sent=195193, recv=343785
+[14:35:03] TLM: 64 flows, sent=195193, recv=343937
+[14:35:04] TLM: 64 flows, sent=195193, recv=343937
+[14:35:05] TLM: 64 flows, sent=195193, recv=343937
+[14:35:06] TLM: 64 flows, sent=195193, recv=344057
+[14:35:07] TLM: 64 flows, sent=195193, recv=344089
+[14:35:08] TLM: 64 flows, sent=195193, recv=344089
+[14:35:09] TLM: 64 flows, sent=195193, recv=344241
+[14:35:10] TLM: 64 flows, sent=195193, recv=344241
+[14:35:11] TLM: 64 flows, sent=195193, recv=344241
+[14:35:12] TLM: 64 flows, sent=195193, recv=345178

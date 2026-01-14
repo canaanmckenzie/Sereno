@@ -245,6 +245,9 @@ DriverEntry(
     deviceContext->BlockedDomainCount = 0;
     KeInitializeSpinLock(&deviceContext->BlockedDomainLock);
 
+    // Initialize TLM bandwidth cache
+    SerenoBandwidthCacheInit(deviceContext);
+
     // Create TCP injection handle for RST injection (Phase 2: SNI-based blocking)
     status = FwpsInjectionHandleCreate0(AF_UNSPEC, FWPS_INJECTION_TYPE_STREAM, &deviceContext->InjectionHandle);
     if (!NT_SUCCESS(status)) {
@@ -543,6 +546,28 @@ SerenoEvtIoDeviceControl(
         // Clear all blocked domains
         SerenoBlockedDomainClear(deviceContext);
         SERENO_DBG("Cleared all blocked domains\n");
+        status = STATUS_SUCCESS;
+        break;
+    }
+
+    case IOCTL_SERENO_GET_BANDWIDTH:
+    {
+        // Get bandwidth statistics for usermode
+        PSERENO_BANDWIDTH_STATS outStats;
+        SERENO_DBG("GET_BANDWIDTH: sizeof(ENTRY)=%u, sizeof(STATS)=%u\n",
+            (UINT32)sizeof(SERENO_BANDWIDTH_ENTRY), (UINT32)sizeof(SERENO_BANDWIDTH_STATS));
+        status = WdfRequestRetrieveOutputBuffer(Request,
+            sizeof(SERENO_BANDWIDTH_STATS), &outputBuffer, NULL);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("GET_BANDWIDTH: Failed to get output buffer: 0x%08X\n", status);
+            break;
+        }
+
+        outStats = (PSERENO_BANDWIDTH_STATS)outputBuffer;
+        SerenoBandwidthGetStats(deviceContext, outStats);
+        bytesReturned = sizeof(SERENO_BANDWIDTH_STATS);
+        SERENO_DBG("GET_BANDWIDTH: Returned %u entries (total %u)\n",
+            outStats->ReturnedCount, outStats->TotalEntries);
         status = STATUS_SUCCESS;
         break;
     }
@@ -896,6 +921,170 @@ SerenoRegisterCallouts(
         }
     }
 
+    // ========================================
+    // TLM (Transport Layer Module) Callouts - Bandwidth Statistics
+    // These callouts count bytes sent/received per connection
+    // ========================================
+
+    // Register Transport Outbound V4 callout
+    sCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_OUT_V4_GUID;
+    sCallout.classifyFn = SerenoClassifyTransportOutbound;
+    sCallout.notifyFn = SerenoNotify;
+    sCallout.flowDeleteFn = SerenoFlowDelete;
+    sCallout.flags = 0;
+
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->TransportOutCalloutIdV4);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Transport Out V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add Transport Outbound V4 callout to filter engine
+    mCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_OUT_V4_GUID;
+    mCallout.displayData.name = L"Sereno Transport Outbound V4 Callout";
+    mCallout.displayData.description = L"Counts bytes sent per connection (TLM bandwidth)";
+    mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+    mCallout.applicableLayer = FWPM_LAYER_OUTBOUND_TRANSPORT_V4;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Transport Out V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Register Transport Outbound V6 callout
+    sCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_OUT_V6_GUID;
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->TransportOutCalloutIdV6);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Transport Out V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    mCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_OUT_V6_GUID;
+    mCallout.displayData.name = L"Sereno Transport Outbound V6 Callout";
+    mCallout.applicableLayer = FWPM_LAYER_OUTBOUND_TRANSPORT_V6;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Transport Out V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Register Transport Inbound V4 callout
+    sCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_IN_V4_GUID;
+    sCallout.classifyFn = SerenoClassifyTransportInbound;
+
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->TransportInCalloutIdV4);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Transport In V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    mCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_IN_V4_GUID;
+    mCallout.displayData.name = L"Sereno Transport Inbound V4 Callout";
+    mCallout.displayData.description = L"Counts bytes received per connection (TLM bandwidth)";
+    mCallout.applicableLayer = FWPM_LAYER_INBOUND_TRANSPORT_V4;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Transport In V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Register Transport Inbound V6 callout
+    sCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_IN_V6_GUID;
+
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->TransportInCalloutIdV6);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Transport In V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    mCallout.calloutKey = SERENO_CALLOUT_TRANSPORT_IN_V6_GUID;
+    mCallout.displayData.name = L"Sereno Transport Inbound V6 Callout";
+    mCallout.applicableLayer = FWPM_LAYER_INBOUND_TRANSPORT_V6;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Transport In V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add TLM filters (no conditions - inspect all transport traffic)
+    {
+        RtlZeroMemory(&filter, sizeof(filter));
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0x5;  // Lower weight than ALE/Stream (less priority)
+        filter.numFilterConditions = 0;  // No conditions - all traffic
+
+        // Transport Outbound V4 filter
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_OUTBOUND_TRANSPORT_V4;
+        filter.displayData.name = L"Sereno Transport Outbound V4 Filter";
+        filter.displayData.description = L"TLM bandwidth counting - outbound";
+        filter.action.type = FWP_ACTION_CALLOUT_INSPECTION;  // Inspect only, don't block
+        filter.action.calloutKey = SERENO_CALLOUT_TRANSPORT_OUT_V4_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->TransportOutFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Transport Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Transport Outbound V6 filter
+        filter.layerKey = FWPM_LAYER_OUTBOUND_TRANSPORT_V6;
+        filter.displayData.name = L"Sereno Transport Outbound V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_TRANSPORT_OUT_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->TransportOutFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Transport Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Transport Inbound V4 filter
+        filter.layerKey = FWPM_LAYER_INBOUND_TRANSPORT_V4;
+        filter.displayData.name = L"Sereno Transport Inbound V4 Filter";
+        filter.displayData.description = L"TLM bandwidth counting - inbound";
+        filter.action.calloutKey = SERENO_CALLOUT_TRANSPORT_IN_V4_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->TransportInFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Transport In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Transport Inbound V6 filter
+        filter.layerKey = FWPM_LAYER_INBOUND_TRANSPORT_V6;
+        filter.displayData.name = L"Sereno Transport Inbound V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_TRANSPORT_IN_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->TransportInFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Transport In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
+    SERENO_DBG("TLM callouts registered successfully\n");
+
     // Commit transaction
     status = FwpmTransactionCommit0(DeviceContext->EngineHandle);
     if (!NT_SUCCESS(status)) {
@@ -949,6 +1138,20 @@ SerenoUnregisterCallouts(
             FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->StreamFilterIdV6);
         }
 
+        // Remove TLM (Transport) filters
+        if (DeviceContext->TransportOutFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->TransportOutFilterIdV4);
+        }
+        if (DeviceContext->TransportOutFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->TransportOutFilterIdV6);
+        }
+        if (DeviceContext->TransportInFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->TransportInFilterIdV4);
+        }
+        if (DeviceContext->TransportInFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->TransportInFilterIdV6);
+        }
+
         FwpmEngineClose0(DeviceContext->EngineHandle);
         DeviceContext->EngineHandle = NULL;
     }
@@ -981,6 +1184,24 @@ SerenoUnregisterCallouts(
     if (DeviceContext->StreamCalloutIdV6) {
         FwpsCalloutUnregisterById0(DeviceContext->StreamCalloutIdV6);
         DeviceContext->StreamCalloutIdV6 = 0;
+    }
+
+    // Unregister TLM (Transport) callouts
+    if (DeviceContext->TransportOutCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->TransportOutCalloutIdV4);
+        DeviceContext->TransportOutCalloutIdV4 = 0;
+    }
+    if (DeviceContext->TransportOutCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->TransportOutCalloutIdV6);
+        DeviceContext->TransportOutCalloutIdV6 = 0;
+    }
+    if (DeviceContext->TransportInCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->TransportInCalloutIdV4);
+        DeviceContext->TransportInCalloutIdV4 = 0;
+    }
+    if (DeviceContext->TransportInCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->TransportInCalloutIdV6);
+        DeviceContext->TransportInCalloutIdV6 = 0;
     }
 
     // Destroy injection handle (for TCP RST injection)
@@ -2968,4 +3189,383 @@ SerenoClassifyDns(
     if (allocatedBuffer) {
         ExFreePoolWithTag(allocatedBuffer, SERENO_POOL_TAG);
     }
+}
+
+// ============================================================================
+// TLM (Transport Layer Module) - Bandwidth Statistics Implementation
+// ============================================================================
+
+/*
+ * SerenoBandwidthCacheInit - Initialize bandwidth cache spinlock
+ */
+VOID
+SerenoBandwidthCacheInit(
+    _In_ PSERENO_DEVICE_CONTEXT Context
+)
+{
+    KeInitializeSpinLock(&Context->BandwidthCacheLock);
+    RtlZeroMemory(Context->BandwidthCache, sizeof(Context->BandwidthCache));
+    Context->BandwidthCacheCount = 0;
+    SERENO_DBG("Bandwidth cache initialized\n");
+}
+
+/*
+ * SerenoBandwidthAdd - Add or update bandwidth counters for a flow
+ *
+ * Called from transport layer classify functions for every packet.
+ * Uses FlowHandle as primary key; falls back to port matching if no flow.
+ * Thread-safe via spinlock.
+ */
+VOID
+SerenoBandwidthAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ UINT64 FlowHandle,
+    _In_ UINT32 ProcessId,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 LocalAddressV4,
+    _In_ UINT32 RemoteAddressV4,
+    _In_ UINT16 LocalPort,
+    _In_ UINT16 RemotePort,
+    _In_ UINT64 BytesSent,
+    _In_ UINT64 BytesReceived
+)
+{
+    KIRQL oldIrql;
+    UINT32 i;
+    UINT64 now = KeQueryInterruptTime();
+    UINT32 targetIndex = MAX_BANDWIDTH_ENTRIES;  // Invalid = not found
+    UINT32 oldestIndex = 0;
+    UINT64 oldestTime = MAXUINT64;
+    UINT32 emptyIndex = MAX_BANDWIDTH_ENTRIES;
+
+    if (!Context || Context->ShuttingDown) {
+        return;
+    }
+
+    KeAcquireSpinLock(&Context->BandwidthCacheLock, &oldIrql);
+
+    // Search for existing entry or find best slot
+    for (i = 0; i < MAX_BANDWIDTH_ENTRIES; i++) {
+        if (!Context->BandwidthCache[i].InUse) {
+            // Track first empty slot
+            if (emptyIndex == MAX_BANDWIDTH_ENTRIES) {
+                emptyIndex = i;
+            }
+            continue;
+        }
+
+        // Check for expired entry
+        if ((now - Context->BandwidthCache[i].Timestamp) > BANDWIDTH_ENTRY_TTL_100NS) {
+            Context->BandwidthCache[i].InUse = FALSE;
+            Context->BandwidthCacheCount--;
+            if (emptyIndex == MAX_BANDWIDTH_ENTRIES) {
+                emptyIndex = i;
+            }
+            continue;
+        }
+
+        // Track oldest for eviction if needed
+        if (Context->BandwidthCache[i].Timestamp < oldestTime) {
+            oldestTime = Context->BandwidthCache[i].Timestamp;
+            oldestIndex = i;
+        }
+
+        // Match by FlowHandle (best match)
+        if (FlowHandle != 0 && Context->BandwidthCache[i].FlowHandle == FlowHandle) {
+            targetIndex = i;
+            break;
+        }
+
+        // Fallback: Match by ports if FlowHandle is 0
+        if (FlowHandle == 0 &&
+            Context->BandwidthCache[i].LocalPort == LocalPort &&
+            Context->BandwidthCache[i].RemotePort == RemotePort &&
+            Context->BandwidthCache[i].ProcessId == ProcessId) {
+            targetIndex = i;
+            break;
+        }
+    }
+
+    // If found, update existing entry
+    if (targetIndex < MAX_BANDWIDTH_ENTRIES) {
+        Context->BandwidthCache[targetIndex].BytesSent += BytesSent;
+        Context->BandwidthCache[targetIndex].BytesReceived += BytesReceived;
+        Context->BandwidthCache[targetIndex].LastActivity = now;
+        KeReleaseSpinLock(&Context->BandwidthCacheLock, oldIrql);
+        return;
+    }
+
+    // Not found - need to create new entry
+    // Prefer empty slot, otherwise evict oldest
+    if (emptyIndex < MAX_BANDWIDTH_ENTRIES) {
+        targetIndex = emptyIndex;
+    } else {
+        // Evict oldest entry
+        targetIndex = oldestIndex;
+        Context->BandwidthCacheCount--;  // Will increment below
+    }
+
+    // Initialize new entry
+    RtlZeroMemory(&Context->BandwidthCache[targetIndex], sizeof(SERENO_BANDWIDTH_ENTRY));
+    Context->BandwidthCache[targetIndex].FlowHandle = FlowHandle;
+    Context->BandwidthCache[targetIndex].ProcessId = ProcessId;
+    Context->BandwidthCache[targetIndex].IsIPv6 = IsIPv6;
+    Context->BandwidthCache[targetIndex].LocalAddressV4 = LocalAddressV4;
+    Context->BandwidthCache[targetIndex].RemoteAddressV4 = RemoteAddressV4;
+    Context->BandwidthCache[targetIndex].LocalPort = LocalPort;
+    Context->BandwidthCache[targetIndex].RemotePort = RemotePort;
+    Context->BandwidthCache[targetIndex].BytesSent = BytesSent;
+    Context->BandwidthCache[targetIndex].BytesReceived = BytesReceived;
+    Context->BandwidthCache[targetIndex].StartTime = now;
+    Context->BandwidthCache[targetIndex].LastActivity = now;
+    Context->BandwidthCache[targetIndex].Timestamp = now;
+    Context->BandwidthCache[targetIndex].InUse = TRUE;
+    Context->BandwidthCacheCount++;
+
+    KeReleaseSpinLock(&Context->BandwidthCacheLock, oldIrql);
+}
+
+/*
+ * SerenoBandwidthGetStats - Get bandwidth statistics for usermode
+ *
+ * Returns a batch of active bandwidth entries.
+ * Called via IOCTL_SERENO_GET_BANDWIDTH.
+ */
+VOID
+SerenoBandwidthGetStats(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _Out_ PSERENO_BANDWIDTH_STATS Stats
+)
+{
+    KIRQL oldIrql;
+    UINT32 i;
+    UINT32 count = 0;
+    UINT64 now = KeQueryInterruptTime();
+
+    RtlZeroMemory(Stats, sizeof(SERENO_BANDWIDTH_STATS));
+
+    if (!Context) {
+        return;
+    }
+
+    KeAcquireSpinLock(&Context->BandwidthCacheLock, &oldIrql);
+
+    Stats->TotalEntries = Context->BandwidthCacheCount;
+
+    for (i = 0; i < MAX_BANDWIDTH_ENTRIES && count < BANDWIDTH_BATCH_SIZE; i++) {
+        if (!Context->BandwidthCache[i].InUse) {
+            continue;
+        }
+
+        // Skip expired entries
+        if ((now - Context->BandwidthCache[i].Timestamp) > BANDWIDTH_ENTRY_TTL_100NS) {
+            continue;
+        }
+
+        // Copy entry to output
+        RtlCopyMemory(&Stats->Entries[count], &Context->BandwidthCache[i], sizeof(SERENO_BANDWIDTH_ENTRY));
+        count++;
+    }
+
+    Stats->ReturnedCount = count;
+
+    KeReleaseSpinLock(&Context->BandwidthCacheLock, oldIrql);
+}
+
+/*
+ * SerenoClassifyTransportOutbound - Count bytes sent for bandwidth statistics
+ *
+ * Called for every outbound TCP/UDP packet at transport layer.
+ * This is inspection-only - we always permit and just count bytes.
+ */
+VOID NTAPI
+SerenoClassifyTransportOutbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    UINT32 packetSize = 0;
+    UINT64 flowHandle = 0;
+    UINT32 processId = 0;
+    UINT16 localPort = 0;
+    UINT16 remotePort = 0;
+    UINT32 localAddrV4 = 0;
+    UINT32 remoteAddrV4 = 0;
+    BOOLEAN isIPv6 = FALSE;
+    static UINT64 tlmOutCallCount = 0;
+
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Debug: track that this function is being called at all
+    tlmOutCallCount++;
+    if ((tlmOutCallCount % 100) == 1) {
+        SERENO_DBG("TLM OUTBOUND called: count=%llu\n", tlmOutCallCount);
+    }
+
+    // Always permit - TLM is inspection only
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+
+    if (!deviceContext || !deviceContext->FilteringEnabled || deviceContext->ShuttingDown) {
+        return;
+    }
+
+    // Get packet size from NET_BUFFER_LIST
+    if (LayerData) {
+        PNET_BUFFER_LIST nbl = (PNET_BUFFER_LIST)LayerData;
+        PNET_BUFFER nb = NET_BUFFER_LIST_FIRST_NB(nbl);
+        if (nb) {
+            packetSize = NET_BUFFER_DATA_LENGTH(nb);
+        }
+    }
+
+    if (packetSize == 0) {
+        return;  // Nothing to count
+    }
+
+    // Get flow handle for matching
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_FLOW_HANDLE)) {
+        flowHandle = InMetaValues->flowHandle;
+    }
+
+    // Get process ID
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID)) {
+        processId = (UINT32)(ULONG_PTR)InMetaValues->processId;
+    }
+
+    // Determine IP version and extract addresses/ports
+    if (InFixedValues) {
+        // Check layer to determine IP version
+        if (InFixedValues->layerId == FWPS_LAYER_OUTBOUND_TRANSPORT_V4) {
+            isIPv6 = FALSE;
+            localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_TRANSPORT_V4_IP_LOCAL_ADDRESS].value.uint32;
+            remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_TRANSPORT_V4_IP_REMOTE_ADDRESS].value.uint32;
+            localPort = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_TRANSPORT_V4_IP_LOCAL_PORT].value.uint16;
+            remotePort = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_TRANSPORT_V4_IP_REMOTE_PORT].value.uint16;
+        } else {
+            isIPv6 = TRUE;
+            localPort = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_TRANSPORT_V6_IP_LOCAL_PORT].value.uint16;
+            remotePort = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_TRANSPORT_V6_IP_REMOTE_PORT].value.uint16;
+            // IPv6 addresses not stored in simple uint32 - leave as 0 for now
+        }
+    }
+
+    // Update bandwidth counters
+    SerenoBandwidthAdd(
+        deviceContext,
+        flowHandle,
+        processId,
+        isIPv6,
+        localAddrV4,
+        remoteAddrV4,
+        localPort,
+        remotePort,
+        packetSize,     // bytes sent
+        0               // bytes received
+    );
+}
+
+/*
+ * SerenoClassifyTransportInbound - Count bytes received for bandwidth statistics
+ *
+ * Called for every inbound TCP/UDP packet at transport layer.
+ * This is inspection-only - we always permit and just count bytes.
+ */
+VOID NTAPI
+SerenoClassifyTransportInbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    UINT32 packetSize = 0;
+    UINT64 flowHandle = 0;
+    UINT32 processId = 0;
+    UINT16 localPort = 0;
+    UINT16 remotePort = 0;
+    UINT32 localAddrV4 = 0;
+    UINT32 remoteAddrV4 = 0;
+    BOOLEAN isIPv6 = FALSE;
+    static UINT64 tlmInCallCount = 0;
+
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Debug: track that this function is being called at all
+    tlmInCallCount++;
+    if ((tlmInCallCount % 100) == 1) {
+        SERENO_DBG("TLM INBOUND called: count=%llu\n", tlmInCallCount);
+    }
+
+    // Always permit - TLM is inspection only
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+
+    if (!deviceContext || !deviceContext->FilteringEnabled || deviceContext->ShuttingDown) {
+        return;
+    }
+
+    // Get packet size from NET_BUFFER_LIST
+    if (LayerData) {
+        PNET_BUFFER_LIST nbl = (PNET_BUFFER_LIST)LayerData;
+        PNET_BUFFER nb = NET_BUFFER_LIST_FIRST_NB(nbl);
+        if (nb) {
+            packetSize = NET_BUFFER_DATA_LENGTH(nb);
+        }
+    }
+
+    if (packetSize == 0) {
+        return;  // Nothing to count
+    }
+
+    // Get flow handle for matching
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_FLOW_HANDLE)) {
+        flowHandle = InMetaValues->flowHandle;
+    }
+
+    // Get process ID (may not be available for inbound)
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID)) {
+        processId = (UINT32)(ULONG_PTR)InMetaValues->processId;
+    }
+
+    // Determine IP version and extract addresses/ports
+    if (InFixedValues) {
+        if (InFixedValues->layerId == FWPS_LAYER_INBOUND_TRANSPORT_V4) {
+            isIPv6 = FALSE;
+            localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_TRANSPORT_V4_IP_LOCAL_ADDRESS].value.uint32;
+            remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_TRANSPORT_V4_IP_REMOTE_ADDRESS].value.uint32;
+            localPort = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_TRANSPORT_V4_IP_LOCAL_PORT].value.uint16;
+            remotePort = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_TRANSPORT_V4_IP_REMOTE_PORT].value.uint16;
+        } else {
+            isIPv6 = TRUE;
+            localPort = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_TRANSPORT_V6_IP_LOCAL_PORT].value.uint16;
+            remotePort = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_TRANSPORT_V6_IP_REMOTE_PORT].value.uint16;
+        }
+    }
+
+    // Update bandwidth counters
+    SerenoBandwidthAdd(
+        deviceContext,
+        flowHandle,
+        processId,
+        isIPv6,
+        localAddrV4,
+        remoteAddrV4,
+        localPort,
+        remotePort,
+        0,              // bytes sent
+        packetSize      // bytes received
+    );
 }

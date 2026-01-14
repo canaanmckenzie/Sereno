@@ -27,6 +27,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_footer(frame, app, chunks[3]);
 }
 
+/// Format bytes into human-readable form (KB, MB, GB)
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1_073_741_824 {
+        format!("{:.1}GB", bytes as f64 / 1_073_741_824.0)
+    } else if bytes >= 1_048_576 {
+        format!("{:.1}MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1}KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{}B", bytes)
+    }
+}
+
 /// Draw the header with title and status
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     let driver_indicator = match app.driver_status {
@@ -43,7 +56,22 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::Cyan),
     );
 
-    let title = Line::from(vec![
+    // Format bandwidth stats
+    let bandwidth_span = if app.driver_status == DriverStatus::Running {
+        vec![
+            Span::raw("  ↑"),
+            Span::styled(format_bytes(app.total_bytes_sent), Style::default().fg(Color::Green)),
+            Span::raw(" ↓"),
+            Span::styled(format_bytes(app.total_bytes_received), Style::default().fg(Color::Cyan)),
+            Span::raw(" ("),
+            Span::styled(format!("{}", app.active_flows), Style::default().fg(Color::Yellow)),
+            Span::raw(" flows)"),
+        ]
+    } else {
+        vec![]
+    };
+
+    let mut title_parts = vec![
         Span::styled(
             " SERENO FIREWALL ",
             Style::default()
@@ -55,7 +83,10 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         driver_indicator,
         Span::raw("  Mode: "),
         mode_span,
-    ]);
+    ];
+    title_parts.extend(bandwidth_span);
+
+    let title = Line::from(title_parts);
 
     let header = Paragraph::new(title)
         .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::DarkGray)));

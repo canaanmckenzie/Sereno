@@ -74,6 +74,7 @@ DEFINE_GUID(GUID_NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 #define IOCTL_SERENO_GET_SNI        CTL_CODE(FILE_DEVICE_SERENO, 0x807, METHOD_BUFFERED, FILE_READ_ACCESS)
 #define IOCTL_SERENO_ADD_BLOCKED_DOMAIN CTL_CODE(FILE_DEVICE_SERENO, 0x808, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS CTL_CODE(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define IOCTL_SERENO_GET_BANDWIDTH      CTL_CODE(FILE_DEVICE_SERENO, 0x80A, METHOD_BUFFERED, FILE_READ_ACCESS)
 
 // Verdict values
 typedef enum _SERENO_VERDICT {
@@ -94,6 +95,28 @@ typedef enum _SERENO_PROTOCOL {
     SERENO_PROTOCOL_UDP = 17,
     SERENO_PROTOCOL_ICMP = 1,
 } SERENO_PROTOCOL;
+
+// Block reason - indicates WHY and at WHICH LAYER a connection was blocked
+typedef enum _SERENO_BLOCK_REASON {
+    BLOCK_REASON_NONE = 0,
+
+    // ALE Layer blocks (pre-connection, immediate)
+    BLOCK_REASON_PROCESS = 1,       // Process/app is blocked
+    BLOCK_REASON_IP = 2,            // IP address is blocked
+    BLOCK_REASON_PORT = 3,          // Port is blocked
+    BLOCK_REASON_DOMAIN_DNS = 4,    // Domain blocked (via DNS cache → IP lookup)
+
+    // Stream Layer blocks (post-handshake, ~50-100ms)
+    BLOCK_REASON_SNI = 5,           // Domain blocked (via TLS SNI inspection)
+
+    // TLM Layer blocks (during transfer) - FUTURE
+    BLOCK_REASON_BANDWIDTH = 6,     // Exceeded bandwidth limit
+    BLOCK_REASON_PATTERN = 7,       // Matched packet pattern
+
+    // Rule/User blocks
+    BLOCK_REASON_RULE = 10,         // Explicit rule match
+    BLOCK_REASON_USER = 11,         // User clicked Block in TUI
+} SERENO_BLOCK_REASON;
 
 #pragma pack(push, 1)
 
@@ -214,6 +237,45 @@ typedef struct _BLOCKED_DOMAIN_ENTRY {
     UINT32          DomainLength;       // Length in characters
 } BLOCKED_DOMAIN_ENTRY, *PBLOCKED_DOMAIN_ENTRY;
 
+// ============================================================================
+// TLM (Transport Layer Module) - Bandwidth Statistics
+// ============================================================================
+
+// Bandwidth cache settings - tracks bytes sent/received per connection flow
+// Key: FlowHandle (assigned by WFP at ALE layer)
+// Updated by: OUTBOUND_TRANSPORT and INBOUND_TRANSPORT callouts
+#define MAX_BANDWIDTH_ENTRIES       1024
+#define BANDWIDTH_ENTRY_TTL_100NS   (10LL * 60 * 1000 * 10000)  // 10 minutes in 100ns units
+
+// Bandwidth entry - tracks traffic statistics for a single connection flow
+typedef struct _SERENO_BANDWIDTH_ENTRY {
+    UINT64          FlowHandle;         // WFP flow identifier (from InMetaValues->flowHandle)
+    UINT64          BytesSent;          // Total bytes sent (outbound)
+    UINT64          BytesReceived;      // Total bytes received (inbound)
+    UINT64          StartTime;          // When connection started (100ns units)
+    UINT64          LastActivity;       // Last packet timestamp (100ns units)
+    UINT64          Timestamp;          // For TTL expiration and LRU eviction (100ns units)
+    UINT32          ProcessId;          // Process that owns this flow
+    UINT16          LocalPort;          // Local port (for matching to connections)
+    UINT16          RemotePort;         // Remote port (for matching to connections)
+    UINT32          LocalAddressV4;     // Local IP (for matching)
+    UINT32          RemoteAddressV4;    // Remote IP (for matching)
+    BOOLEAN         IsIPv6;             // TRUE if IPv6 connection
+    BOOLEAN         InUse;              // Slot is active
+} SERENO_BANDWIDTH_ENTRY, *PSERENO_BANDWIDTH_ENTRY;
+
+// Bandwidth stats response - returned via IOCTL_SERENO_GET_BANDWIDTH
+// Contains a batch of bandwidth entries for usermode polling
+#define BANDWIDTH_BATCH_SIZE    64
+
+typedef struct _SERENO_BANDWIDTH_STATS {
+    UINT32          TotalEntries;       // Total active entries in cache
+    UINT32          ReturnedCount;      // Number of entries in this batch
+    UINT32          StartIndex;         // For pagination (future)
+    UINT32          Reserved;
+    SERENO_BANDWIDTH_ENTRY Entries[BANDWIDTH_BATCH_SIZE];
+} SERENO_BANDWIDTH_STATS, *PSERENO_BANDWIDTH_STATS;
+
 // Verdict cache entry - for re-authorization after FwpsCompleteOperation0
 // Key: (ProcessId, RemotePort, DomainName) -> Verdict
 // UPDATED: Now includes domain name to allow different verdicts for different domains
@@ -263,6 +325,12 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     UINT32          StreamCalloutIdV4;
     UINT32          StreamCalloutIdV6;
 
+    // Callout IDs - TLM (Transport Layer Module - Bandwidth)
+    UINT32          TransportOutCalloutIdV4;
+    UINT32          TransportOutCalloutIdV6;
+    UINT32          TransportInCalloutIdV4;
+    UINT32          TransportInCalloutIdV6;
+
     // Filter IDs - Connection filtering
     UINT64          ConnectFilterIdV4;
     UINT64          ConnectFilterIdV6;
@@ -276,6 +344,12 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     // Filter IDs - Stream inspection (SNI extraction)
     UINT64          StreamFilterIdV4;
     UINT64          StreamFilterIdV6;
+
+    // Filter IDs - TLM (Transport Layer Module - Bandwidth)
+    UINT64          TransportOutFilterIdV4;
+    UINT64          TransportOutFilterIdV6;
+    UINT64          TransportInFilterIdV4;
+    UINT64          TransportInFilterIdV6;
 
     // Pending requests
     LIST_ENTRY      PendingList;
@@ -306,6 +380,11 @@ typedef struct _SERENO_DEVICE_CONTEXT {
     BLOCKED_DOMAIN_ENTRY BlockedDomains[MAX_BLOCKED_DOMAINS];
     UINT32          BlockedDomainCount;
     KSPIN_LOCK      BlockedDomainLock;
+
+    // TLM Bandwidth cache - tracks bytes sent/received per connection flow
+    SERENO_BANDWIDTH_ENTRY BandwidthCache[MAX_BANDWIDTH_ENTRIES];
+    KSPIN_LOCK      BandwidthCacheLock;
+    UINT32          BandwidthCacheCount;    // Number of active entries
 
     // Statistics
     SERENO_STATS    Stats;
@@ -368,6 +447,30 @@ DEFINE_GUID(SERENO_CALLOUT_STREAM_V4_GUID,
 DEFINE_GUID(SERENO_CALLOUT_STREAM_V6_GUID,
     0x53455245, 0x4E4F, 0x5354,
     0x52, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// ============================================================================
+// TLM (Transport Layer Module) GUIDs - Bandwidth Statistics
+// ============================================================================
+
+// {53455245-4E4F-544C-4D01-000000000001} Transport Outbound V4
+DEFINE_GUID(SERENO_CALLOUT_TRANSPORT_OUT_V4_GUID,
+    0x53455245, 0x4E4F, 0x544C,
+    0x4D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-544C-4D02-000000000001} Transport Outbound V6
+DEFINE_GUID(SERENO_CALLOUT_TRANSPORT_OUT_V6_GUID,
+    0x53455245, 0x4E4F, 0x544C,
+    0x4D, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-544C-4D03-000000000001} Transport Inbound V4
+DEFINE_GUID(SERENO_CALLOUT_TRANSPORT_IN_V4_GUID,
+    0x53455245, 0x4E4F, 0x544C,
+    0x4D, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-544C-4D04-000000000001} Transport Inbound V6
+DEFINE_GUID(SERENO_CALLOUT_TRANSPORT_IN_V6_GUID,
+    0x53455245, 0x4E4F, 0x544C,
+    0x4D, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
 
 // Function prototypes
 DRIVER_INITIALIZE DriverEntry;
@@ -459,6 +562,48 @@ VOID NTAPI SerenoClassifyDns(
     _In_ UINT64 FlowContext,
     _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
 );
+
+// ============================================================================
+// TLM (Transport Layer Module) - Bandwidth Statistics
+// ============================================================================
+
+// TLM Outbound classify function - counts bytes sent per connection
+VOID NTAPI SerenoClassifyTransportOutbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+);
+
+// TLM Inbound classify function - counts bytes received per connection
+VOID NTAPI SerenoClassifyTransportInbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+);
+
+// Bandwidth cache management
+VOID SerenoBandwidthCacheInit(_In_ PSERENO_DEVICE_CONTEXT Context);
+VOID SerenoBandwidthAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ UINT64 FlowHandle,
+    _In_ UINT32 ProcessId,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT32 LocalAddressV4,
+    _In_ UINT32 RemoteAddressV4,
+    _In_ UINT16 LocalPort,
+    _In_ UINT16 RemotePort,
+    _In_ UINT64 BytesSent,
+    _In_ UINT64 BytesReceived
+);
+VOID SerenoBandwidthGetStats(_In_ PSERENO_DEVICE_CONTEXT Context, _Out_ PSERENO_BANDWIDTH_STATS Stats);
 
 // DNS parsing helpers
 VOID SerenoParseDnsResponse(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ const UINT8* DnsData, _In_ UINT32 DnsLength);

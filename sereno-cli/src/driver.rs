@@ -36,6 +36,7 @@ mod windows_impl {
     const IOCTL_SERENO_GET_SNI: u32 = ctl_code(FILE_DEVICE_SERENO, 0x807, METHOD_BUFFERED, FILE_READ_ACCESS);
     const IOCTL_SERENO_ADD_BLOCKED_DOMAIN: u32 = ctl_code(FILE_DEVICE_SERENO, 0x808, METHOD_BUFFERED, FILE_WRITE_ACCESS);
     const IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS: u32 = ctl_code(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS);
+    const IOCTL_SERENO_GET_BANDWIDTH: u32 = ctl_code(FILE_DEVICE_SERENO, 0x80A, METHOD_BUFFERED, FILE_READ_ACCESS);
 
     #[repr(u32)]
     #[derive(Debug, Clone, Copy)]
@@ -126,6 +127,113 @@ mod windows_impl {
             request.domain_name_length = len as u32;
 
             request
+        }
+    }
+
+    // ============================================================================
+    // TLM Bandwidth Statistics Structures
+    // ============================================================================
+
+    const BANDWIDTH_BATCH_SIZE: usize = 64;
+
+    /// Raw bandwidth entry from kernel - matches SERENO_BANDWIDTH_ENTRY in driver.h
+    /// NOTE: Using repr(C) without packed to match C's natural alignment (8-byte aligned)
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct DriverBandwidthEntry {
+        pub flow_handle: u64,
+        pub bytes_sent: u64,
+        pub bytes_received: u64,
+        pub start_time: u64,
+        pub last_activity: u64,
+        pub timestamp: u64,         // For TTL expiration and LRU eviction
+        pub process_id: u32,
+        pub local_port: u16,
+        pub remote_port: u16,
+        pub local_address_v4: u32,
+        pub remote_address_v4: u32,
+        pub is_ipv6: u8,
+        pub in_use: u8,
+        // Padding to match C's 8-byte alignment (2 BOOLEANs + 6 bytes padding = 8 bytes)
+        pub _padding: [u8; 6],
+    }
+
+    /// Raw bandwidth stats response from kernel - matches SERENO_BANDWIDTH_STATS in driver.h
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct DriverBandwidthStats {
+        pub total_entries: u32,
+        pub returned_count: u32,
+        pub start_index: u32,
+        pub reserved: u32,
+        pub entries: [DriverBandwidthEntry; BANDWIDTH_BATCH_SIZE],
+    }
+
+    // Compile-time size assertions to catch struct mismatches
+    // C sizes: SERENO_BANDWIDTH_ENTRY = 72 bytes, SERENO_BANDWIDTH_STATS = 4624 bytes
+    const _: () = assert!(std::mem::size_of::<DriverBandwidthEntry>() == 72);
+    const _: () = assert!(std::mem::size_of::<DriverBandwidthStats>() == 4624);
+
+    /// Parsed bandwidth entry for usermode
+    #[derive(Debug, Clone)]
+    pub struct BandwidthEntry {
+        pub flow_handle: u64,
+        pub bytes_sent: u64,
+        pub bytes_received: u64,
+        pub process_id: u32,
+        pub local_port: u16,
+        pub remote_port: u16,
+        pub local_address: IpAddr,
+        pub remote_address: IpAddr,
+        pub is_ipv6: bool,
+        /// Duration since connection started (in seconds)
+        pub duration_secs: f64,
+    }
+
+    impl DriverBandwidthEntry {
+        pub fn parse(&self) -> BandwidthEntry {
+            let flow_handle = self.flow_handle;
+            let bytes_sent = self.bytes_sent;
+            let bytes_received = self.bytes_received;
+            let start_time = self.start_time;
+            let last_activity = self.last_activity;
+            let process_id = self.process_id;
+            let local_port = self.local_port;
+            let remote_port = self.remote_port;
+            let local_v4 = self.local_address_v4;
+            let remote_v4 = self.remote_address_v4;
+            let is_ipv6 = self.is_ipv6 != 0;
+
+            // Calculate duration in seconds (start_time is in 100ns units)
+            let duration_100ns = if last_activity > start_time {
+                last_activity - start_time
+            } else {
+                0
+            };
+            let duration_secs = duration_100ns as f64 / 10_000_000.0;
+
+            let (local_address, remote_address) = if is_ipv6 {
+                // IPv6 addresses not stored in uint32 - use placeholder
+                (IpAddr::V4(Ipv4Addr::UNSPECIFIED), IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+            } else {
+                (
+                    IpAddr::V4(Ipv4Addr::from(u32::from_be(local_v4))),
+                    IpAddr::V4(Ipv4Addr::from(u32::from_be(remote_v4))),
+                )
+            };
+
+            BandwidthEntry {
+                flow_handle,
+                bytes_sent,
+                bytes_received,
+                process_id,
+                local_port,
+                remote_port,
+                local_address,
+                remote_address,
+                is_ipv6,
+                duration_secs,
+            }
         }
     }
 
@@ -461,6 +569,43 @@ mod windows_impl {
                 Err(io::Error::last_os_error())
             }
         }
+
+        /// Get bandwidth statistics from TLM layer
+        /// Returns all active bandwidth entries from the kernel cache
+        pub fn get_bandwidth_stats(&self) -> io::Result<Vec<BandwidthEntry>> {
+            let mut stats: DriverBandwidthStats = unsafe { mem::zeroed() };
+            let mut bytes_returned = 0u32;
+
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    IOCTL_SERENO_GET_BANDWIDTH,
+                    None,
+                    0,
+                    Some(&mut stats as *mut _ as *mut _),
+                    mem::size_of::<DriverBandwidthStats>() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            if result.is_err() {
+                return Err(io::Error::last_os_error());
+            }
+
+            let mut entries = Vec::new();
+            let count = stats.returned_count as usize;
+
+            for i in 0..count {
+                let raw_entry = &stats.entries[i];
+                // Skip entries not in use
+                if raw_entry.in_use != 0 {
+                    entries.push(raw_entry.parse());
+                }
+            }
+
+            Ok(entries)
+        }
     }
 
     impl Drop for DriverHandle {
@@ -515,6 +660,21 @@ pub mod stub {
         pub domain: String,
     }
 
+    /// Parsed bandwidth entry for usermode
+    #[derive(Debug, Clone)]
+    pub struct BandwidthEntry {
+        pub flow_handle: u64,
+        pub bytes_sent: u64,
+        pub bytes_received: u64,
+        pub process_id: u32,
+        pub local_port: u16,
+        pub remote_port: u16,
+        pub local_address: IpAddr,
+        pub remote_address: IpAddr,
+        pub is_ipv6: bool,
+        pub duration_secs: f64,
+    }
+
     pub struct DriverHandle;
 
     impl DriverHandle {
@@ -548,6 +708,10 @@ pub mod stub {
 
         pub fn clear_blocked_domains(&self) -> io::Result<()> {
             Ok(())
+        }
+
+        pub fn get_bandwidth_stats(&self) -> io::Result<Vec<BandwidthEntry>> {
+            Ok(Vec::new())
         }
     }
 }

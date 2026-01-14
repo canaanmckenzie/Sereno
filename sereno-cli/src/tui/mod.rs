@@ -463,20 +463,22 @@ async fn driver_poll_loop(
                 // Evaluate the connection against rules
                 let verdict = engine.evaluate(&ctx);
 
-                // Check if we should show in UI (dedup repeated identical connections)
-                // But ALWAYS show if verdict changed from cached value (rule was toggled)
+                // Check if we should show in UI
+                // Show ALL connections (ALLOW, DENY, ASK) but deduplicate rapid-fire duplicates
+                // Use a short TTL (2 seconds) to prevent flooding while still showing most connections
+                const UI_DEDUP_TTL_SECS: u64 = 2;
                 let show_in_ui = if let Some((cached_verdict, ts)) = verdict_cache.get(&cache_key) {
-                    if ts.elapsed().as_secs() < CACHE_TTL_SECS {
-                        // Check if verdict changed - if so, show it
+                    if ts.elapsed().as_secs() < UI_DEDUP_TTL_SECS {
+                        // Very recent duplicate - check if verdict changed
                         let verdict_changed = match (&verdict, cached_verdict) {
                             (EvalResult::Allow { .. }, EvalResult::Allow { .. }) => false,
                             (EvalResult::Deny { .. }, EvalResult::Deny { .. }) => false,
                             (EvalResult::Ask, EvalResult::Ask) => false,
                             _ => true,
                         };
-                        verdict_changed // Show if verdict changed, otherwise suppress
+                        verdict_changed // Show if verdict changed, otherwise suppress rapid duplicates
                     } else {
-                        true // Cache expired, show
+                        true // Dedup window expired, show
                     }
                 } else {
                     true // Not in cache, show
@@ -593,6 +595,10 @@ async fn run_event_loop(
     clear_cache_flag: Arc<AtomicBool>,
     sync_debounce: Arc<Mutex<SyncDebounce>>,
 ) -> Result<()> {
+    // Timer for bandwidth polling (every 1 second)
+    let mut last_bandwidth_poll = Instant::now();
+    const BANDWIDTH_POLL_INTERVAL_MS: u64 = 1000;
+
     loop {
         // Draw UI
         terminal.draw(|frame| ui::draw(frame, app))?;
@@ -891,6 +897,51 @@ async fn run_event_loop(
                 }
                 debounce.sync_completed();
             }
+        }
+
+        // Poll bandwidth stats from TLM layer periodically
+        if last_bandwidth_poll.elapsed().as_millis() >= BANDWIDTH_POLL_INTERVAL_MS as u128 {
+            if let Some(ref handle) = driver_handle {
+                match handle.get_bandwidth_stats() {
+                    Ok(entries) => {
+                        // Aggregate bandwidth stats
+                        let mut total_sent = 0u64;
+                        let mut total_recv = 0u64;
+                        for entry in &entries {
+                            total_sent += entry.bytes_sent;
+                            total_recv += entry.bytes_received;
+                        }
+                        app.total_bytes_sent = total_sent;
+                        app.total_bytes_received = total_recv;
+                        app.active_flows = entries.len();
+
+                        // Debug: log bandwidth poll results
+                        let _ = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open("sereno-debug.log")
+                            .and_then(|mut f| {
+                                use std::io::Write;
+                                writeln!(f, "[{}] TLM: {} flows, sent={}, recv={}",
+                                    chrono::Local::now().format("%H:%M:%S"),
+                                    entries.len(), total_sent, total_recv)
+                            });
+                    }
+                    Err(e) => {
+                        // TLM not available or error - log it
+                        let _ = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open("sereno-debug.log")
+                            .and_then(|mut f| {
+                                use std::io::Write;
+                                writeln!(f, "[{}] TLM ERROR: {}",
+                                    chrono::Local::now().format("%H:%M:%S"), e)
+                            });
+                    }
+                }
+            }
+            last_bandwidth_poll = Instant::now();
         }
 
         // Check if should quit

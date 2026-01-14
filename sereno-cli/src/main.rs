@@ -489,6 +489,25 @@ fn handle_init(db: Database) -> Result<()> {
     let engine = RuleEngine::new(db)?;
 
     let factory_rules = vec![
+        // Allow Claude Code / Anthropic API (high priority for development)
+        {
+            let mut rule = Rule::new(
+                "Allow Claude Code",
+                Action::Allow,
+                vec![Condition::Domain {
+                    patterns: vec![
+                        DomainPattern::Exact {
+                            value: "api.anthropic.com".to_string(),
+                        },
+                        DomainPattern::Wildcard {
+                            pattern: "*.anthropic.com".to_string(),
+                        },
+                    ],
+                }],
+            );
+            rule.priority = 200; // Higher than telemetry block
+            rule
+        },
         // Allow DNS
         Rule::new(
             "Allow DNS",
@@ -564,10 +583,11 @@ fn handle_init(db: Database) -> Result<()> {
     }
 
     println!("Initialized with factory rules:");
+    println!("  - Allow Claude Code (api.anthropic.com) [priority 200]");
     println!("  - Allow DNS (UDP port 53)");
     println!("  - Allow Local Network (RFC1918)");
     println!("  - Allow Windows Update");
-    println!("  - Block Telemetry (high priority)");
+    println!("  - Block Telemetry [priority 100]");
 
     Ok(())
 }

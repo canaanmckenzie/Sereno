@@ -169,6 +169,15 @@ pub struct App {
 
     /// Scroll offset for connection list
     pub connection_scroll: usize,
+
+    /// Total bytes sent (from TLM bandwidth tracking)
+    pub total_bytes_sent: u64,
+
+    /// Total bytes received (from TLM bandwidth tracking)
+    pub total_bytes_received: u64,
+
+    /// Active flow count (from TLM bandwidth tracking)
+    pub active_flows: usize,
 }
 
 impl Default for App {
@@ -191,6 +200,9 @@ impl Default for App {
             total_connections: 0,
             blocked_connections: 0,
             connection_scroll: 0,
+            total_bytes_sent: 0,
+            total_bytes_received: 0,
+            active_flows: 0,
         }
     }
 }
