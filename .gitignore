@@ -7,3 +7,5 @@ SERENO_BUILD_GUIDE.md
 scratch.md
 DBGVIEW_GUIDE.md
 .claude/
+reboot_recovery.md
+sereno-debug.log

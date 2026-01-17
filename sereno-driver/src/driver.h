@@ -76,6 +76,7 @@ DEFINE_GUID(GUID_NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 #define IOCTL_SERENO_ADD_BLOCKED_DOMAIN CTL_CODE(FILE_DEVICE_SERENO, 0x808, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS CTL_CODE(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_GET_BANDWIDTH CTL_CODE(FILE_DEVICE_SERENO, 0x80A, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define IOCTL_SERENO_GET_FLOW_STATE CTL_CODE(FILE_DEVICE_SERENO, 0x80B, METHOD_BUFFERED, FILE_READ_ACCESS)
 
 // Verdict values
 typedef enum _SERENO_VERDICT
@@ -198,6 +199,33 @@ typedef struct _SERENO_BLOCKED_DOMAIN_REQUEST
     UINT32 DomainNameLength; // Length in characters
 } SERENO_BLOCKED_DOMAIN_REQUEST, *PSERENO_BLOCKED_DOMAIN_REQUEST;
 
+// Connection state - tracks lifecycle of a connection
+typedef enum _SERENO_CONNECTION_STATE
+{
+    SERENO_STATE_CONNECTING = 0,  // ALE_AUTH_CONNECT fired (TCP SYN sent)
+    SERENO_STATE_ESTABLISHED = 1, // ALE_FLOW_ESTABLISHED fired (TCP handshake complete)
+    SERENO_STATE_CLOSED = 2,      // Flow delete notification
+} SERENO_CONNECTION_STATE;
+
+// Flow state notification - sent to usermode when connection state changes
+// Allows TUI to show "Connecting" -> "Established" -> "Closed" transitions
+typedef struct _SERENO_FLOW_STATE_NOTIFICATION
+{
+    UINT64 Timestamp;
+    UINT64 FlowHandle;      // WFP flow identifier for matching
+    UINT32 ProcessId;       // Process that owns this connection
+    UINT8 IpVersion;        // 4 or 6
+    UINT8 State;            // SERENO_CONNECTION_STATE
+    UINT8 Direction;        // SERENO_DIRECTION (0=outbound, 1=inbound)
+    UINT8 Protocol;         // TCP=6, UDP=17
+    UINT32 LocalAddressV4;  // Local IP (for matching)
+    UINT32 RemoteAddressV4; // Remote IP (for matching)
+    UINT8 LocalAddressV6[16];
+    UINT8 RemoteAddressV6[16];
+    UINT16 LocalPort;       // Local port (for matching)
+    UINT16 RemotePort;      // Remote port (for matching)
+} SERENO_FLOW_STATE_NOTIFICATION, *PSERENO_FLOW_STATE_NOTIFICATION;
+
 #pragma pack(pop)
 
 // DNS cache entry (internal) - maps IP addresses to domain names
@@ -220,6 +248,9 @@ typedef struct _DNS_CACHE_ENTRY
 
 // SNI notification queue - ring buffer for notifying usermode of extracted SNI
 #define MAX_SNI_NOTIFICATIONS 64
+
+// Flow state notification queue - ring buffer for connection state changes
+#define MAX_FLOW_STATE_NOTIFICATIONS 128
 
 // Blocked domain list - domains that should be blocked at Stream layer
 // Populated from usermode rules, checked when SNI is extracted
@@ -280,7 +311,7 @@ typedef struct _SERENO_BANDWIDTH_ENTRY
 
 // Bandwidth stats response - returned via IOCTL_SERENO_GET_BANDWIDTH
 // Contains a batch of bandwidth entries for usermode polling
-#define BANDWIDTH_BATCH_SIZE 64
+#define BANDWIDTH_BATCH_SIZE 1024
 
 typedef struct _SERENO_BANDWIDTH_STATS
 {
@@ -352,6 +383,10 @@ typedef struct _SERENO_DEVICE_CONTEXT
     UINT32 TransportInCalloutIdV4;
     UINT32 TransportInCalloutIdV6;
 
+    // Callout IDs - Flow Established (connection state tracking)
+    UINT32 FlowEstCalloutIdV4;
+    UINT32 FlowEstCalloutIdV6;
+
     // Filter IDs - Connection filtering
     UINT64 ConnectFilterIdV4;
     UINT64 ConnectFilterIdV6;
@@ -371,6 +406,10 @@ typedef struct _SERENO_DEVICE_CONTEXT
     UINT64 TransportOutFilterIdV6;
     UINT64 TransportInFilterIdV4;
     UINT64 TransportInFilterIdV6;
+
+    // Filter IDs - Flow Established (connection state tracking)
+    UINT64 FlowEstFilterIdV4;
+    UINT64 FlowEstFilterIdV6;
 
     // Pending requests
     LIST_ENTRY PendingList;
@@ -396,6 +435,12 @@ typedef struct _SERENO_DEVICE_CONTEXT
     UINT32 SniNotifyHead; // Next slot to write
     UINT32 SniNotifyTail; // Next slot to read
     KSPIN_LOCK SniNotifyLock;
+
+    // Flow state notification queue - ring buffer for connection state changes
+    SERENO_FLOW_STATE_NOTIFICATION FlowStateNotifications[MAX_FLOW_STATE_NOTIFICATIONS];
+    UINT32 FlowStateHead; // Next slot to write
+    UINT32 FlowStateTail; // Next slot to read
+    KSPIN_LOCK FlowStateLock;
 
     // Blocked domain list - for SNI-based blocking at Stream layer
     BLOCKED_DOMAIN_ENTRY BlockedDomains[MAX_BLOCKED_DOMAINS];
@@ -493,6 +538,21 @@ DEFINE_GUID(SERENO_CALLOUT_TRANSPORT_IN_V6_GUID,
             0x53455245, 0x4E4F, 0x544C,
             0x4D, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
 
+// ============================================================================
+// Connection State Tracking - ALE_FLOW_ESTABLISHED Layer
+// Notifies when TCP connections complete the 3-way handshake
+// ============================================================================
+
+// {53455245-4E4F-464C-4F01-000000000001} Flow Established V4
+DEFINE_GUID(SERENO_CALLOUT_FLOW_EST_V4_GUID,
+            0x53455245, 0x4E4F, 0x464C,
+            0x4F, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-464C-4F02-000000000001} Flow Established V6
+DEFINE_GUID(SERENO_CALLOUT_FLOW_EST_V6_GUID,
+            0x53455245, 0x4E4F, 0x464C,
+            0x4F, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
 // Function prototypes
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD SerenoEvtDeviceAdd;
@@ -503,8 +563,18 @@ EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL SerenoEvtIoDeviceControl;
 NTSTATUS SerenoRegisterCallouts(_In_ PSERENO_DEVICE_CONTEXT DeviceContext);
 VOID SerenoUnregisterCallouts(_In_ PSERENO_DEVICE_CONTEXT DeviceContext);
 
-// Callout classify function
+// Callout classify function - outbound connections
 VOID NTAPI SerenoClassifyConnect(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
+
+// Callout classify function - inbound connections (listening sockets)
+VOID NTAPI SerenoClassifyRecvAccept(
     _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
     _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
     _Inout_opt_ void *LayerData,
@@ -623,5 +693,36 @@ VOID SerenoParseDnsResponse(_In_ PSERENO_DEVICE_CONTEXT Context, _In_ const UINT
 
 // Process info helpers
 NTSTATUS SerenoGetProcessPath(_In_ HANDLE ProcessId, _Out_writes_(PathLength) PWCHAR Path, _In_ ULONG PathLength, _Out_ PULONG ActualLength);
+
+// ============================================================================
+// Connection State Tracking - ALE_FLOW_ESTABLISHED Layer
+// ============================================================================
+
+// Flow Established classify function - fires when TCP handshake completes
+VOID NTAPI SerenoClassifyFlowEstablished(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
+
+// Flow state notification queue management
+VOID SerenoFlowStateNotifyAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ SERENO_CONNECTION_STATE State,
+    _In_ UINT64 FlowHandle,
+    _In_ UINT32 ProcessId,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT8 Direction,
+    _In_ UINT8 Protocol,
+    _In_ UINT32 LocalAddrV4,
+    _In_ UINT32 RemoteAddrV4,
+    _In_opt_ const UINT8 *LocalAddrV6,
+    _In_opt_ const UINT8 *RemoteAddrV6,
+    _In_ UINT16 LocalPort,
+    _In_ UINT16 RemotePort);
+BOOLEAN SerenoFlowStateNotifyGet(_In_ PSERENO_DEVICE_CONTEXT Context, _Out_ PSERENO_FLOW_STATE_NOTIFICATION Notification);
 
 #endif // SERENO_DRIVER_H

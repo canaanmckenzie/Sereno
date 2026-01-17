@@ -37,6 +37,7 @@ mod windows_impl {
     const IOCTL_SERENO_ADD_BLOCKED_DOMAIN: u32 = ctl_code(FILE_DEVICE_SERENO, 0x808, METHOD_BUFFERED, FILE_WRITE_ACCESS);
     const IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS: u32 = ctl_code(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS);
     const IOCTL_SERENO_GET_BANDWIDTH: u32 = ctl_code(FILE_DEVICE_SERENO, 0x80A, METHOD_BUFFERED, FILE_READ_ACCESS);
+    const IOCTL_SERENO_GET_FLOW_STATE: u32 = ctl_code(FILE_DEVICE_SERENO, 0x80B, METHOD_BUFFERED, FILE_READ_ACCESS);
 
     #[repr(u32)]
     #[derive(Debug, Clone, Copy)]
@@ -134,7 +135,7 @@ mod windows_impl {
     // TLM Bandwidth Statistics Structures
     // ============================================================================
 
-    const BANDWIDTH_BATCH_SIZE: usize = 64;
+    const BANDWIDTH_BATCH_SIZE: usize = 1024;
 
     /// Raw bandwidth entry from kernel - matches SERENO_BANDWIDTH_ENTRY in driver.h
     /// NOTE: Using repr(C) without packed to match C's natural alignment (8-byte aligned)
@@ -170,9 +171,9 @@ mod windows_impl {
     }
 
     // Compile-time size assertions to catch struct mismatches
-    // C sizes: SERENO_BANDWIDTH_ENTRY = 72 bytes, SERENO_BANDWIDTH_STATS = 4624 bytes
+    // C sizes: SERENO_BANDWIDTH_ENTRY = 72 bytes, SERENO_BANDWIDTH_STATS = 73744 bytes (1024 entries)
     const _: () = assert!(std::mem::size_of::<DriverBandwidthEntry>() == 72);
-    const _: () = assert!(std::mem::size_of::<DriverBandwidthStats>() == 4624);
+    const _: () = assert!(std::mem::size_of::<DriverBandwidthStats>() == 73744);
 
     /// Parsed bandwidth entry for usermode
     #[derive(Debug, Clone)]
@@ -188,6 +189,111 @@ mod windows_impl {
         pub is_ipv6: bool,
         /// Duration since connection started (in seconds)
         pub duration_secs: f64,
+    }
+
+    // ============================================================================
+    // Connection State Tracking Structures
+    // ============================================================================
+
+    /// Connection state enum - matches SERENO_CONNECTION_STATE in driver.h
+    #[repr(u8)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ConnectionState {
+        Connecting = 0,
+        Established = 1,
+        Closed = 2,
+    }
+
+    impl From<u8> for ConnectionState {
+        fn from(value: u8) -> Self {
+            match value {
+                0 => ConnectionState::Connecting,
+                1 => ConnectionState::Established,
+                2 => ConnectionState::Closed,
+                _ => ConnectionState::Connecting,
+            }
+        }
+    }
+
+    /// Raw flow state notification from kernel - matches SERENO_FLOW_STATE_NOTIFICATION
+    #[repr(C, packed)]
+    #[derive(Clone, Copy)]
+    pub struct DriverFlowStateNotification {
+        pub timestamp: u64,
+        pub flow_handle: u64,
+        pub process_id: u32,
+        pub ip_version: u8,
+        pub state: u8,
+        pub direction: u8,
+        pub protocol: u8,
+        pub local_address_v4: u32,
+        pub remote_address_v4: u32,
+        pub local_address_v6: [u8; 16],
+        pub remote_address_v6: [u8; 16],
+        pub local_port: u16,
+        pub remote_port: u16,
+    }
+
+    /// Parsed flow state notification for usermode
+    #[derive(Debug, Clone)]
+    pub struct FlowStateNotification {
+        pub flow_handle: u64,
+        pub process_id: u32,
+        pub state: ConnectionState,
+        pub direction: Direction,
+        pub protocol: Protocol,
+        pub local_address: IpAddr,
+        pub remote_address: IpAddr,
+        pub local_port: u16,
+        pub remote_port: u16,
+    }
+
+    impl DriverFlowStateNotification {
+        pub fn parse(&self) -> FlowStateNotification {
+            let ip_version = self.ip_version;
+            let local_v4 = self.local_address_v4;
+            let remote_v4 = self.remote_address_v4;
+            let local_v6 = self.local_address_v6;
+            let remote_v6 = self.remote_address_v6;
+            let local_port = self.local_port;
+            let remote_port = self.remote_port;
+            let flow_handle = self.flow_handle;
+            let process_id = self.process_id;
+            let state = ConnectionState::from(self.state);
+            let direction = if self.direction == 0 { Direction::Outbound } else { Direction::Inbound };
+            let protocol = match self.protocol {
+                6 => Protocol::Tcp,
+                17 => Protocol::Udp,
+                1 => Protocol::Icmp,
+                _ => Protocol::Tcp,
+            };
+
+            let (local_address, remote_address) = if ip_version == 6 {
+                (
+                    IpAddr::V6(Ipv6Addr::from(local_v6)),
+                    IpAddr::V6(Ipv6Addr::from(remote_v6)),
+                )
+            } else {
+                let local_bytes = local_v4.to_be_bytes();
+                let remote_bytes = remote_v4.to_be_bytes();
+                (
+                    IpAddr::V4(Ipv4Addr::new(local_bytes[0], local_bytes[1], local_bytes[2], local_bytes[3])),
+                    IpAddr::V4(Ipv4Addr::new(remote_bytes[0], remote_bytes[1], remote_bytes[2], remote_bytes[3])),
+                )
+            };
+
+            FlowStateNotification {
+                flow_handle,
+                process_id,
+                state,
+                direction,
+                protocol,
+                local_address,
+                remote_address,
+                local_port,
+                remote_port,
+            }
+        }
     }
 
     impl DriverBandwidthEntry {
@@ -609,6 +715,36 @@ mod windows_impl {
 
             Ok(entries)
         }
+
+        /// Get next flow state notification from the driver queue
+        pub fn get_flow_state(&self) -> io::Result<Option<FlowStateNotification>> {
+            let mut notification: DriverFlowStateNotification = unsafe { mem::zeroed() };
+            let mut bytes_returned = 0u32;
+
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    IOCTL_SERENO_GET_FLOW_STATE,
+                    None,
+                    0,
+                    Some(&mut notification as *mut _ as *mut _),
+                    mem::size_of::<DriverFlowStateNotification>() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            if result.is_err() {
+                return Err(io::Error::last_os_error());
+            }
+
+            // If no data returned, queue was empty
+            if bytes_returned == 0 {
+                return Ok(None);
+            }
+
+            Ok(Some(notification.parse()))
+        }
     }
 
     impl Drop for DriverHandle {
@@ -905,6 +1041,32 @@ pub mod stub {
         pub fn get_bandwidth_stats(&self) -> io::Result<Vec<BandwidthEntry>> {
             Ok(Vec::new())
         }
+
+        pub fn get_flow_state(&self) -> io::Result<Option<FlowStateNotification>> {
+            Ok(None)
+        }
+    }
+
+    /// Connection state enum - stub for non-Windows
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ConnectionState {
+        Connecting,
+        Established,
+        Closed,
+    }
+
+    /// Flow state notification - stub for non-Windows
+    #[derive(Debug, Clone)]
+    pub struct FlowStateNotification {
+        pub flow_handle: u64,
+        pub process_id: u32,
+        pub state: ConnectionState,
+        pub direction: Direction,
+        pub protocol: Protocol,
+        pub local_address: IpAddr,
+        pub remote_address: IpAddr,
+        pub local_port: u16,
+        pub remote_port: u16,
     }
 
     /// Stub: Get PID by local port (not available on non-Windows)

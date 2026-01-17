@@ -1,4 +1,5 @@
 mod driver;
+mod signature;
 mod tui;
 
 use anyhow::Result;
@@ -65,10 +66,10 @@ enum Commands {
         /// Remote IP address
         #[arg(long)]
         ip: String,
-        /// Remote port
-        #[arg(long)]
+        /// Remote port (optional for ICMP)
+        #[arg(long, default_value = "0")]
         port: u16,
-        /// Protocol (tcp/udp)
+        /// Protocol (tcp/udp/icmp)
         #[arg(long, default_value = "tcp")]
         protocol: String,
         /// Domain name (optional)
@@ -576,6 +577,14 @@ fn handle_init(db: Database) -> Result<()> {
             rule.priority = 100; // High priority
             rule
         },
+        // Allow ICMP (ping, network diagnostics)
+        Rule::new(
+            "Allow ICMP",
+            Action::Allow,
+            vec![Condition::Protocol {
+                protocol: Protocol::Icmp,
+            }],
+        ),
     ];
 
     for rule in factory_rules {
@@ -588,6 +597,7 @@ fn handle_init(db: Database) -> Result<()> {
     println!("  - Allow Local Network (RFC1918)");
     println!("  - Allow Windows Update");
     println!("  - Block Telemetry [priority 100]");
+    println!("  - Allow ICMP (ping/diagnostics)");
 
     Ok(())
 }

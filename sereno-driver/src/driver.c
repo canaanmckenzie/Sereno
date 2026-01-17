@@ -240,6 +240,12 @@ DriverEntry(
     deviceContext->SniNotifyTail = 0;
     KeInitializeSpinLock(&deviceContext->SniNotifyLock);
 
+    // Initialize flow state notification queue (for connection state tracking)
+    RtlZeroMemory(deviceContext->FlowStateNotifications, sizeof(deviceContext->FlowStateNotifications));
+    deviceContext->FlowStateHead = 0;
+    deviceContext->FlowStateTail = 0;
+    KeInitializeSpinLock(&deviceContext->FlowStateLock);
+
     // Initialize blocked domain list (for SNI-based blocking)
     RtlZeroMemory(deviceContext->BlockedDomains, sizeof(deviceContext->BlockedDomains));
     deviceContext->BlockedDomainCount = 0;
@@ -572,6 +578,29 @@ SerenoEvtIoDeviceControl(
         break;
     }
 
+    case IOCTL_SERENO_GET_FLOW_STATE:
+    {
+        // Get next flow state notification from queue
+        PSERENO_FLOW_STATE_NOTIFICATION outNotification;
+        status = WdfRequestRetrieveOutputBuffer(Request,
+            sizeof(SERENO_FLOW_STATE_NOTIFICATION), &outputBuffer, NULL);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("GET_FLOW_STATE: Failed to get output buffer: 0x%08X\n", status);
+            break;
+        }
+
+        outNotification = (PSERENO_FLOW_STATE_NOTIFICATION)outputBuffer;
+        if (SerenoFlowStateNotifyGet(deviceContext, outNotification)) {
+            bytesReturned = sizeof(SERENO_FLOW_STATE_NOTIFICATION);
+            status = STATUS_SUCCESS;
+        } else {
+            // No notification available - return success with 0 bytes
+            bytesReturned = 0;
+            status = STATUS_SUCCESS;
+        }
+        break;
+    }
+
     default:
         status = STATUS_INVALID_DEVICE_REQUEST;
         break;
@@ -721,6 +750,94 @@ SerenoRegisterCallouts(
         FwpmTransactionAbort0(DeviceContext->EngineHandle);
         goto cleanup;
     }
+
+    // ========================================
+    // Recv Accept Callouts (inbound connections)
+    // ========================================
+
+    // Register Recv Accept V4 callout
+    sCallout.calloutKey = SERENO_CALLOUT_RECV_V4_GUID;
+    sCallout.classifyFn = SerenoClassifyRecvAccept;
+    sCallout.notifyFn = SerenoNotify;
+    sCallout.flowDeleteFn = SerenoFlowDelete;
+    sCallout.flags = 0;
+
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->RecvAcceptCalloutIdV4);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Recv Accept V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add Recv Accept V4 callout to filter engine
+    mCallout.calloutKey = SERENO_CALLOUT_RECV_V4_GUID;
+    mCallout.displayData.name = L"Sereno Recv Accept V4 Callout";
+    mCallout.displayData.description = L"Intercepts inbound IPv4 connections";
+    mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+    mCallout.applicableLayer = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Recv Accept V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Register Recv Accept V6 callout
+    sCallout.calloutKey = SERENO_CALLOUT_RECV_V6_GUID;
+    status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                   &sCallout, &DeviceContext->RecvAcceptCalloutIdV6);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpsCalloutRegister3 (Recv Accept V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    mCallout.calloutKey = SERENO_CALLOUT_RECV_V6_GUID;
+    mCallout.displayData.name = L"Sereno Recv Accept V6 Callout";
+    mCallout.applicableLayer = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6;
+
+    status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+    if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+        SERENO_DBG("FwpmCalloutAdd0 (Recv Accept V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add filter for Recv Accept V4
+    filter.filterKey = GUID_NULL;
+    filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4;
+    filter.displayData.name = L"Sereno Recv Accept V4 Filter";
+    filter.displayData.description = L"Filters inbound IPv4 connections";
+    filter.action.type = FWP_ACTION_CALLOUT_TERMINATING;
+    filter.action.calloutKey = SERENO_CALLOUT_RECV_V4_GUID;
+    filter.subLayerKey = SERENO_SUBLAYER_GUID;
+    filter.weight.type = FWP_UINT8;
+    filter.weight.uint8 = 0xF;
+    filter.numFilterConditions = 0;
+    filter.filterCondition = NULL;
+
+    status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->RecvAcceptFilterIdV4);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpmFilterAdd0 (Recv Accept V4) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    // Add filter for Recv Accept V6
+    filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6;
+    filter.displayData.name = L"Sereno Recv Accept V6 Filter";
+    filter.action.calloutKey = SERENO_CALLOUT_RECV_V6_GUID;
+
+    status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->RecvAcceptFilterIdV6);
+    if (!NT_SUCCESS(status)) {
+        SERENO_DBG("FwpmFilterAdd0 (Recv Accept V6) failed: 0x%08X\n", status);
+        FwpmTransactionAbort0(DeviceContext->EngineHandle);
+        goto cleanup;
+    }
+
+    SERENO_DBG("Recv Accept callouts registered successfully\n");
 
     // ========================================
     // DNS Interception Callouts (port 53 UDP)
@@ -1084,6 +1201,95 @@ SerenoRegisterCallouts(
     }
 
     SERENO_DBG("TLM callouts registered successfully\n");
+
+    // ========================================
+    // Flow Established Callouts (connection state tracking)
+    // ========================================
+    {
+        // Register Flow Established V4 callout
+        sCallout.calloutKey = SERENO_CALLOUT_FLOW_EST_V4_GUID;
+        sCallout.classifyFn = SerenoClassifyFlowEstablished;
+        sCallout.notifyFn = SerenoNotify;
+        sCallout.flowDeleteFn = SerenoFlowDelete;
+        sCallout.flags = 0;
+
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->FlowEstCalloutIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (Flow Est V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add Flow Established V4 callout to filter engine
+        mCallout.calloutKey = SERENO_CALLOUT_FLOW_EST_V4_GUID;
+        mCallout.displayData.name = L"Sereno Flow Established V4 Callout";
+        mCallout.displayData.description = L"Tracks when TCP connections complete handshake";
+        mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+        mCallout.applicableLayer = FWPM_LAYER_ALE_FLOW_ESTABLISHED_V4;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (Flow Est V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register Flow Established V6 callout
+        sCallout.calloutKey = SERENO_CALLOUT_FLOW_EST_V6_GUID;
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->FlowEstCalloutIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (Flow Est V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_FLOW_EST_V6_GUID;
+        mCallout.displayData.name = L"Sereno Flow Established V6 Callout";
+        mCallout.applicableLayer = FWPM_LAYER_ALE_FLOW_ESTABLISHED_V6;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (Flow Est V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Flow Established V4 filter - non-terminating (just observes)
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_ALE_FLOW_ESTABLISHED_V4;
+        filter.displayData.name = L"Sereno Flow Established V4 Filter";
+        filter.displayData.description = L"Observes TCP handshake completion";
+        filter.action.type = FWP_ACTION_CALLOUT_INSPECTION; // Non-terminating
+        filter.action.calloutKey = SERENO_CALLOUT_FLOW_EST_V4_GUID;
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0x8; // Medium priority
+        filter.numFilterConditions = 0;
+        filter.filterCondition = NULL;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->FlowEstFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Flow Est V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Flow Established V6 filter
+        filter.layerKey = FWPM_LAYER_ALE_FLOW_ESTABLISHED_V6;
+        filter.displayData.name = L"Sereno Flow Established V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_FLOW_EST_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->FlowEstFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Flow Est V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
+    SERENO_DBG("Flow Established callouts registered successfully\n");
 
     // Commit transaction
     status = FwpmTransactionCommit0(DeviceContext->EngineHandle);
@@ -3649,4 +3855,378 @@ SerenoClassifyTransportInbound(
         0,              // bytes sent
         packetSize      // bytes received
     );
+}
+
+// ============================================================================
+// Connection State Tracking - ALE_FLOW_ESTABLISHED Layer
+// ============================================================================
+
+/*
+ * SerenoFlowStateNotifyAdd - Add a flow state notification to the queue
+ *
+ * Called when connection state changes (established, closed).
+ * Uses a ring buffer to queue notifications for usermode polling.
+ */
+VOID
+SerenoFlowStateNotifyAdd(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _In_ SERENO_CONNECTION_STATE State,
+    _In_ UINT64 FlowHandle,
+    _In_ UINT32 ProcessId,
+    _In_ BOOLEAN IsIPv6,
+    _In_ UINT8 Direction,
+    _In_ UINT8 Protocol,
+    _In_ UINT32 LocalAddrV4,
+    _In_ UINT32 RemoteAddrV4,
+    _In_opt_ const UINT8 *LocalAddrV6,
+    _In_opt_ const UINT8 *RemoteAddrV6,
+    _In_ UINT16 LocalPort,
+    _In_ UINT16 RemotePort
+)
+{
+    KIRQL oldIrql;
+    UINT32 nextHead;
+    PSERENO_FLOW_STATE_NOTIFICATION notification;
+
+    if (!Context) {
+        return;
+    }
+
+    KeAcquireSpinLock(&Context->FlowStateLock, &oldIrql);
+
+    // Calculate next write position
+    nextHead = (Context->FlowStateHead + 1) % MAX_FLOW_STATE_NOTIFICATIONS;
+
+    // Check for overflow (would overwrite unread data)
+    if (nextHead == Context->FlowStateTail) {
+        // Queue full - drop oldest entry by advancing tail
+        Context->FlowStateTail = (Context->FlowStateTail + 1) % MAX_FLOW_STATE_NOTIFICATIONS;
+    }
+
+    // Write notification
+    notification = &Context->FlowStateNotifications[Context->FlowStateHead];
+    notification->Timestamp = KeQueryInterruptTime();
+    notification->FlowHandle = FlowHandle;
+    notification->ProcessId = ProcessId;
+    notification->IpVersion = IsIPv6 ? 6 : 4;
+    notification->State = (UINT8)State;
+    notification->Direction = Direction;
+    notification->Protocol = Protocol;
+    notification->LocalAddressV4 = LocalAddrV4;
+    notification->RemoteAddressV4 = RemoteAddrV4;
+    notification->LocalPort = LocalPort;
+    notification->RemotePort = RemotePort;
+
+    if (IsIPv6 && LocalAddrV6) {
+        RtlCopyMemory(notification->LocalAddressV6, LocalAddrV6, 16);
+    } else {
+        RtlZeroMemory(notification->LocalAddressV6, 16);
+    }
+
+    if (IsIPv6 && RemoteAddrV6) {
+        RtlCopyMemory(notification->RemoteAddressV6, RemoteAddrV6, 16);
+    } else {
+        RtlZeroMemory(notification->RemoteAddressV6, 16);
+    }
+
+    Context->FlowStateHead = nextHead;
+
+    KeReleaseSpinLock(&Context->FlowStateLock, oldIrql);
+}
+
+/*
+ * SerenoFlowStateNotifyGet - Get next flow state notification from queue
+ *
+ * Returns TRUE if a notification was available, FALSE if queue empty.
+ * Called via IOCTL_SERENO_GET_FLOW_STATE.
+ */
+BOOLEAN
+SerenoFlowStateNotifyGet(
+    _In_ PSERENO_DEVICE_CONTEXT Context,
+    _Out_ PSERENO_FLOW_STATE_NOTIFICATION Notification
+)
+{
+    KIRQL oldIrql;
+    BOOLEAN hasData = FALSE;
+
+    if (!Context || !Notification) {
+        return FALSE;
+    }
+
+    KeAcquireSpinLock(&Context->FlowStateLock, &oldIrql);
+
+    if (Context->FlowStateTail != Context->FlowStateHead) {
+        // Copy notification data
+        RtlCopyMemory(Notification, &Context->FlowStateNotifications[Context->FlowStateTail],
+                     sizeof(SERENO_FLOW_STATE_NOTIFICATION));
+
+        // Advance tail
+        Context->FlowStateTail = (Context->FlowStateTail + 1) % MAX_FLOW_STATE_NOTIFICATIONS;
+        hasData = TRUE;
+    }
+
+    KeReleaseSpinLock(&Context->FlowStateLock, oldIrql);
+
+    return hasData;
+}
+
+/*
+ * SerenoClassifyFlowEstablished - Track when connections complete TCP handshake
+ *
+ * This callout fires when a TCP connection successfully completes the 3-way
+ * handshake (SYN, SYN-ACK, ACK). We use this to notify usermode that the
+ * connection is now "established" rather than "connecting".
+ *
+ * This is inspection-only - we never block at this layer.
+ */
+VOID NTAPI
+SerenoClassifyFlowEstablished(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    UINT64 flowHandle = 0;
+    UINT32 processId = 0;
+    BOOLEAN isIPv6 = FALSE;
+    UINT8 direction = 0;
+    UINT8 protocol = 0;
+    UINT32 localAddrV4 = 0, remoteAddrV4 = 0;
+    UINT8 localAddrV6[16] = {0}, remoteAddrV6[16] = {0};
+    UINT16 localPort = 0, remotePort = 0;
+
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Inspection-only: always permit
+    if (ClassifyOut) {
+        ClassifyOut->actionType = FWP_ACTION_CONTINUE;
+    }
+
+    if (!deviceContext || !InFixedValues) {
+        return;
+    }
+
+    // Get flow handle for correlation with bandwidth tracking
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_FLOW_HANDLE)) {
+        flowHandle = InMetaValues->flowHandle;
+    }
+
+    // Get process ID
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID)) {
+        processId = (UINT32)(ULONG_PTR)InMetaValues->processId;
+    }
+
+    // Determine IP version and extract connection info
+    if (InFixedValues->layerId == FWPS_LAYER_ALE_FLOW_ESTABLISHED_V4) {
+        isIPv6 = FALSE;
+        direction = (UINT8)InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_DIRECTION].value.uint8;
+        protocol = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_PROTOCOL].value.uint8;
+        localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_LOCAL_ADDRESS].value.uint32;
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_ADDRESS].value.uint32;
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_PORT].value.uint16;
+    } else {
+        isIPv6 = TRUE;
+        direction = (UINT8)InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_DIRECTION].value.uint8;
+        protocol = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_PROTOCOL].value.uint8;
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_REMOTE_PORT].value.uint16;
+
+        // Get IPv6 addresses
+        FWP_BYTE_ARRAY16* localAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_LOCAL_ADDRESS].value.byteArray16;
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (localAddrPtr) {
+            RtlCopyMemory(localAddrV6, localAddrPtr->byteArray16, 16);
+        }
+        if (remoteAddrPtr) {
+            RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+        }
+    }
+
+    // Add notification to queue
+    SerenoFlowStateNotifyAdd(
+        deviceContext,
+        SERENO_STATE_ESTABLISHED,
+        flowHandle,
+        processId,
+        isIPv6,
+        direction,
+        protocol,
+        localAddrV4,
+        remoteAddrV4,
+        isIPv6 ? localAddrV6 : NULL,
+        isIPv6 ? remoteAddrV6 : NULL,
+        localPort,
+        remotePort
+    );
+}
+
+/*
+ * SerenoClassifyRecvAccept - Classify inbound connections (listening sockets)
+ *
+ * This callout fires when an inbound connection is accepted by a listening socket.
+ * We can permit or block incoming connections based on the remote address, port,
+ * and listening process.
+ *
+ * For now, this is a permissive implementation:
+ * - Permits localhost connections
+ * - Permits local network (RFC1918) connections
+ * - Creates pending requests for other inbound connections
+ */
+VOID NTAPI
+SerenoClassifyRecvAccept(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    BOOLEAN isIPv6;
+    UINT32 localAddrV4 = 0, remoteAddrV4 = 0;
+    UINT8 localAddrV6[16] = {0}, remoteAddrV6[16] = {0};
+    UINT16 localPort, remotePort;
+    UINT8 protocol;
+    HANDLE processId;
+
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+    UNREFERENCED_PARAMETER(protocol);
+
+    // Safety checks
+    if (!deviceContext || deviceContext->ShuttingDown) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // If filtering is disabled, permit all
+    if (!deviceContext->FilteringEnabled) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Determine IP version
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_ALE_AUTH_RECV_ACCEPT_V6);
+
+    // Extract connection info based on IP version
+    if (isIPv6) {
+        // IPv6 - ALE_AUTH_RECV_ACCEPT fields
+        FWP_BYTE_ARRAY16* localAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V6_IP_LOCAL_ADDRESS].value.byteArray16;
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (localAddrPtr) RtlCopyMemory(localAddrV6, localAddrPtr->byteArray16, 16);
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V6_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V6_IP_REMOTE_PORT].value.uint16;
+        protocol = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V6_IP_PROTOCOL].value.uint8;
+    } else {
+        // IPv4 - ALE_AUTH_RECV_ACCEPT fields
+        localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V4_IP_LOCAL_ADDRESS].value.uint32;
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V4_IP_REMOTE_ADDRESS].value.uint32;
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V4_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V4_IP_REMOTE_PORT].value.uint16;
+        protocol = InFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_RECV_ACCEPT_V4_IP_PROTOCOL].value.uint8;
+    }
+
+    // Get process ID (the process that owns the listening socket)
+    if (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID) {
+        processId = (HANDLE)(ULONG_PTR)InMetaValues->processId;
+    } else {
+        processId = (HANDLE)0;
+    }
+
+    // === SAFETY BYPASSES FOR INBOUND ===
+
+    // 1. Always permit localhost/loopback connections
+    if (isIPv6) {
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        // IPv4 loopback: 127.x.x.x (network byte order: 0x7F in first byte)
+        UINT8 firstByte = (UINT8)(remoteAddrV4 >> 24);
+        if (firstByte == 0x7F) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // 2. Permit local network (RFC1918) inbound connections
+    // These are typically LAN devices, printers, etc.
+    if (!isIPv6) {
+        UINT8 b1 = (UINT8)(remoteAddrV4 >> 24);
+        UINT8 b2 = (UINT8)(remoteAddrV4 >> 16);
+
+        // 10.0.0.0/8
+        if (b1 == 10) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+        // 172.16.0.0/12
+        if (b1 == 172 && b2 >= 16 && b2 <= 31) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+        // 192.168.0.0/16
+        if (b1 == 192 && b2 == 168) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // 3. Check verdict cache for previously decided inbound connections
+    {
+        SERENO_VERDICT cachedVerdict;
+        UINT32 lookupPid = (UINT32)(ULONG_PTR)processId;
+
+        if (SerenoVerdictCacheLookup(
+                deviceContext,
+                lookupPid,
+                isIPv6,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                remotePort,
+                NULL,
+                0,
+                &cachedVerdict)) {
+            if (cachedVerdict == SERENO_VERDICT_ALLOW) {
+                ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            } else {
+                ClassifyOut->actionType = FWP_ACTION_BLOCK;
+                ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            }
+            return;
+        }
+    }
+
+    // 4. For now, permit all other inbound connections
+    // This makes the firewall "outbound-first" - focusing on what processes
+    // are trying to connect TO, rather than blocking inbound.
+    // Full inbound protection would require pending/asking user.
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+
+    // Log inbound connection for monitoring
+    SERENO_DBG("INBOUND: %s:%u <- %u.%u.%u.%u:%u PID=%u\n",
+        isIPv6 ? "IPv6" : "IPv4",
+        localPort,
+        (UINT8)(remoteAddrV4 >> 24),
+        (UINT8)(remoteAddrV4 >> 16),
+        (UINT8)(remoteAddrV4 >> 8),
+        (UINT8)remoteAddrV4,
+        remotePort,
+        (UINT32)(ULONG_PTR)processId);
 }

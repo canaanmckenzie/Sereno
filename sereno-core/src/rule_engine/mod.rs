@@ -78,6 +78,12 @@ impl RuleEngine {
                 // Update hit count (non-blocking)
                 let _ = self.database.increment_hit_count(&rule.id);
 
+                // Handle Once rules - delete after single use
+                if matches!(rule.validity, Validity::Once) {
+                    let rule_id = rule.id.clone();
+                    let _ = self.remove_rule(&rule_id);
+                }
+
                 return result;
             }
         }
@@ -153,6 +159,21 @@ impl RuleEngine {
             self.cache.clear();
         }
         Ok(())
+    }
+
+    /// Cleanup expired rules (call periodically)
+    /// Returns the number of rules deleted
+    pub fn cleanup_expired_rules(&self) -> Result<usize> {
+        let deleted = self.database.delete_expired_rules()?;
+        if deleted > 0 {
+            self.reload_rules()?;
+        }
+        Ok(deleted)
+    }
+
+    /// Get rules that will expire soon (for UI display)
+    pub fn get_expiring_rules(&self, within_seconds: i64) -> Result<Vec<Rule>> {
+        self.database.get_expiring_rules(within_seconds)
     }
 }
 

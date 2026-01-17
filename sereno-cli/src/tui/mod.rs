@@ -352,6 +352,9 @@ async fn run_async(db_path: &Path) -> Result<()> {
     // Debounce state for kernel sync (500ms delay to batch rapid changes)
     let sync_debounce = Arc::new(Mutex::new(SyncDebounce::new(500)));
 
+    // Shared signature cache for code signing verification
+    let signature_cache = Arc::new(crate::signature::SignatureCache::new());
+
     // Spawn driver polling task
     if let Some(ref handle) = driver_handle {
         let handle_clone = handle.clone();
@@ -359,9 +362,10 @@ async fn run_async(db_path: &Path) -> Result<()> {
         let domain_cache_clone = domain_cache.clone();
         let tx = conn_tx.clone();
         let clear_flag = clear_cache_flag.clone();
+        let sig_cache = signature_cache.clone();
 
         tokio::spawn(async move {
-            driver_poll_loop(handle_clone, engine_clone, domain_cache_clone, tx, clear_flag).await;
+            driver_poll_loop(handle_clone, engine_clone, domain_cache_clone, tx, clear_flag, sig_cache).await;
         });
     }
 
@@ -399,6 +403,7 @@ async fn driver_poll_loop(
     domain_cache: Arc<RwLock<DomainCache>>,
     tx: mpsc::Sender<DriverEvent>,
     clear_cache_flag: Arc<AtomicBool>,
+    signature_cache: Arc<crate::signature::SignatureCache>,
 ) {
     use std::collections::HashMap;
     use std::time::Instant;
@@ -504,6 +509,7 @@ async fn driver_poll_loop(
 
                 // Send verdict to driver - log to file (can't print to TUI)
                 let verdict_result = handle.set_verdict(req.request_id, driver_verdict);
+                let process_path_for_log = req.process_path.display().to_string();
                 let _ = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
@@ -511,9 +517,9 @@ async fn driver_poll_loop(
                     .and_then(|mut f| {
                         use std::io::Write;
                         match &verdict_result {
-                            Ok(()) => writeln!(f, "[{}] Sent {:?} for request {} ({})",
+                            Ok(()) => writeln!(f, "[{}] Sent {:?} for request {} ({}) path='{}'",
                                 chrono::Local::now().format("%H:%M:%S"),
-                                driver_verdict, req.request_id, action_str),
+                                driver_verdict, req.request_id, action_str, process_path_for_log),
                             Err(e) => writeln!(f, "[{}] FAILED set_verdict for request {}: {} (verdict: {:?})",
                                 chrono::Local::now().format("%H:%M:%S"),
                                 req.request_id, e, driver_verdict),
@@ -522,11 +528,28 @@ async fn driver_poll_loop(
 
                 // Only send to UI if not a duplicate (dedup)
                 if show_in_ui {
+                    // Verify code signature (using shared cache)
+                    let process_path_str = req.process_path.display().to_string();
+                    let signature_status = Some(signature_cache.get_or_verify(&process_path_str));
+
+                    // Debug: log signature verification result
+                    let _ = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("sereno-debug.log")
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            writeln!(f, "[{}] SIG: path='{}' status={:?}",
+                                chrono::Local::now().format("%H:%M:%S"),
+                                process_path_str, signature_status)
+                        });
+
                     let event = ConnectionEvent {
                         time: chrono::Local::now().format("%H:%M:%S").to_string(),
                         action: action_str.to_string(),
                         process_name: req.process_name,
                         process_id: req.process_id,
+                        process_path: process_path_str,
                         destination: domain.clone().unwrap_or_else(|| req.remote_address.to_string()),
                         remote_address: req.remote_address.to_string(),
                         port: req.remote_port,
@@ -544,6 +567,7 @@ async fn driver_poll_loop(
                         },
                         is_pending: false, // Not blocking anymore, just highlighting ASK
                         request_id: None,
+                        signature_status,
                     };
 
                     // Send to UI
@@ -599,6 +623,10 @@ async fn run_event_loop(
     // Timer for bandwidth polling (every 1 second)
     let mut last_bandwidth_poll = Instant::now();
     const BANDWIDTH_POLL_INTERVAL_MS: u64 = 1000;
+
+    // Timer for rule cleanup (every 30 seconds)
+    let mut last_rule_cleanup = Instant::now();
+    const RULE_CLEANUP_INTERVAL_MS: u64 = 30000;
 
     loop {
         // Draw UI
@@ -880,6 +908,51 @@ async fn run_event_loop(
                                         sync_debounce.lock().unwrap().request_sync();
                                     }
                                 }
+                                EventResult::CreateDenyRule { process_name, destination, port, duration } => {
+                                    // Create a deny rule with the specified duration
+                                    use sereno_core::types::{Action, Condition, DomainPattern, PortMatcher};
+
+                                    let mut conditions = Vec::new();
+                                    let is_domain = destination.chars().any(|c| c.is_alphabetic());
+                                    if is_domain {
+                                        conditions.push(Condition::Domain {
+                                            patterns: vec![DomainPattern::Exact { value: destination.clone() }],
+                                        });
+                                    }
+                                    conditions.push(Condition::RemotePort {
+                                        matcher: PortMatcher::Single { port },
+                                    });
+
+                                    let duration_label = duration.short_label();
+                                    let rule_name = format!("Block {} ({}:{}) [{}]", process_name, destination, port, duration_label);
+                                    let mut rule = Rule::new(rule_name.clone(), Action::Deny, conditions);
+                                    rule.priority = 50;
+                                    rule.validity = duration.to_validity();
+
+                                    match engine.add_rule(rule) {
+                                        Ok(()) => {
+                                            app.rules = engine.rules();
+                                            clear_cache_flag.store(true, Ordering::Relaxed);
+                                            app.log(format!("Created: {}", rule_name));
+
+                                            // Update the connection to show DENY
+                                            if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                conn.action = "DENY".to_string();
+                                                conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                            }
+
+                                            if driver_handle.is_some() {
+                                                sync_debounce.lock().unwrap().request_sync();
+                                            }
+                                        }
+                                        Err(e) => {
+                                            app.log(format!("Failed to create rule: {}", e));
+                                        }
+                                    }
+                                }
+                                EventResult::CancelDurationPrompt => {
+                                    // Already handled in events.rs, nothing to do here
+                                }
                             }
                         }
                         Event::Resize(_, _) => {
@@ -986,6 +1059,25 @@ async fn run_event_loop(
             last_bandwidth_poll = Instant::now();
         }
 
+        // Cleanup expired rules periodically
+        if last_rule_cleanup.elapsed().as_millis() >= RULE_CLEANUP_INTERVAL_MS as u128 {
+            match engine.cleanup_expired_rules() {
+                Ok(deleted) if deleted > 0 => {
+                    app.rules = engine.rules();
+                    app.log(format!("Cleaned up {} expired rule(s)", deleted));
+                    // Sync to kernel to remove expired blocks
+                    if driver_handle.is_some() {
+                        sync_debounce.lock().unwrap().request_sync();
+                    }
+                }
+                Ok(_) => {} // No expired rules
+                Err(e) => {
+                    app.log(format!("Rule cleanup error: {}", e));
+                }
+            }
+            last_rule_cleanup = Instant::now();
+        }
+
         // Check if should quit
         if app.should_quit {
             break;
@@ -1054,12 +1146,15 @@ fn is_running_as_admin() -> bool {
 /// Add demo connections for testing the UI
 #[allow(dead_code)]
 fn add_demo_connections(app: &mut App) {
+    use crate::signature::SignatureStatus;
+
     let demo_events = vec![
         ConnectionEvent {
             time: "19:45:17".to_string(),
             action: "ALLOW".to_string(),
             process_name: "curl.exe".to_string(),
             process_id: 7892,
+            process_path: "C:\\Windows\\System32\\curl.exe".to_string(),
             destination: "google.com".to_string(),
             remote_address: "142.250.80.46".to_string(),
             port: 443,
@@ -1068,12 +1163,14 @@ fn add_demo_connections(app: &mut App) {
             rule_name: None,
             is_pending: false,
             request_id: None,
+            signature_status: Some(SignatureStatus::Signed { signer: "Microsoft".to_string() }),
         },
         ConnectionEvent {
             time: "19:45:14".to_string(),
             action: "ASK".to_string(),
             process_name: "Code.exe".to_string(),
             process_id: 10860,
+            process_path: "C:\\Users\\User\\AppData\\Local\\Programs\\VSCode\\Code.exe".to_string(),
             destination: "github.com".to_string(),
             remote_address: "140.82.114.4".to_string(),
             port: 443,
@@ -1082,12 +1179,14 @@ fn add_demo_connections(app: &mut App) {
             rule_name: None,
             is_pending: true,
             request_id: Some(999), // Demo request ID
+            signature_status: Some(SignatureStatus::Signed { signer: "Microsoft".to_string() }),
         },
         ConnectionEvent {
             time: "19:44:57".to_string(),
             action: "DENY".to_string(),
             process_name: "telemetry.exe".to_string(),
             process_id: 4024,
+            process_path: "C:\\ProgramData\\Unknown\\telemetry.exe".to_string(),
             destination: "telemetry.microsoft.com".to_string(),
             remote_address: "13.107.4.52".to_string(),
             port: 443,
@@ -1096,12 +1195,14 @@ fn add_demo_connections(app: &mut App) {
             rule_name: Some("Block Telemetry".to_string()),
             is_pending: false,
             request_id: None,
+            signature_status: Some(SignatureStatus::Unsigned),
         },
         ConnectionEvent {
             time: "19:44:57".to_string(),
             action: "ALLOW".to_string(),
             process_name: "node.exe".to_string(),
             process_id: 12816,
+            process_path: "C:\\Program Files\\nodejs\\node.exe".to_string(),
             destination: "localhost".to_string(),
             remote_address: "127.0.0.1".to_string(),
             port: 50073,
@@ -1110,12 +1211,14 @@ fn add_demo_connections(app: &mut App) {
             rule_name: Some("Allow Local".to_string()),
             is_pending: false,
             request_id: None,
+            signature_status: Some(SignatureStatus::Signed { signer: "Node.js".to_string() }),
         },
         ConnectionEvent {
             time: "19:44:52".to_string(),
             action: "ALLOW".to_string(),
             process_name: "svchost.exe".to_string(),
             process_id: 1234,
+            process_path: "C:\\Windows\\System32\\svchost.exe".to_string(),
             destination: "windowsupdate.com".to_string(),
             remote_address: "13.107.4.50".to_string(),
             port: 443,
@@ -1124,6 +1227,7 @@ fn add_demo_connections(app: &mut App) {
             rule_name: Some("Allow WU".to_string()),
             is_pending: false,
             request_id: None,
+            signature_status: Some(SignatureStatus::Signed { signer: "Microsoft".to_string() }),
         },
     ];
 

@@ -10,6 +10,7 @@
 #        .\dev.ps1 -Build       # Rebuild CLI only
 #        .\dev.ps1 -Run         # Run TUI only (assumes already built)
 #        .\dev.ps1 -BuildDriver # Build, sign, and install driver (requires admin)
+#        .\dev.ps1 -Reload      # Stop, copy pre-built driver, restart (fast reload)
 #        .\dev.ps1 -Driver      # Start driver only
 #        .\dev.ps1 -Stop        # Stop driver
 #        .\dev.ps1 -All         # Full rebuild: driver + CLI, install, and start TUI
@@ -31,6 +32,7 @@ param(
     [switch]$BuildDriver,
     [switch]$Driver,
     [switch]$Stop,
+    [switch]$Reload,      # Stop driver, copy new .sys, restart (no rebuild)
     [switch]$All
 )
 
@@ -82,6 +84,59 @@ if ($Driver) {
     exit
 }
 
+if ($Reload) {
+    if (-not (Test-Admin)) {
+        Write-Host "ERROR: Reload requires Administrator privileges!" -ForegroundColor Red
+        exit 1
+    }
+    if (-not (Test-Path $driverSrc)) {
+        Write-Host "ERROR: Built driver not found at $driverSrc" -ForegroundColor Red
+        Write-Host "Run -BuildDriver first to build the driver." -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Host "=== Reloading Driver ===" -ForegroundColor Cyan
+    Write-Host "Stopping driver..." -ForegroundColor Yellow
+    sc.exe stop $serviceName 2>$null
+
+    # Wait for file to be released
+    $maxWait = 10
+    for ($i = 1; $i -le $maxWait; $i++) {
+        Start-Sleep -Seconds 1
+        try {
+            if (Test-Path $driverDst) {
+                [IO.File]::OpenWrite($driverDst).Close()
+            }
+            break
+        } catch {
+            Write-Host "  Waiting for driver to unload... ($i/$maxWait)" -ForegroundColor Gray
+        }
+    }
+
+    # Copy with retry
+    for ($i = 1; $i -le 5; $i++) {
+        try {
+            Copy-Item $driverSrc $driverDst -Force
+            Write-Host "Driver copied." -ForegroundColor Green
+            break
+        } catch {
+            if ($i -lt 5) {
+                Write-Host "  Copy attempt $i failed, retrying..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 2
+            } else {
+                Write-Host "Failed to copy driver: $_" -ForegroundColor Red
+                exit 1
+            }
+        }
+    }
+
+    Write-Host "Starting driver..." -ForegroundColor Cyan
+    Ensure-ServiceExists
+    sc.exe start $serviceName
+    Write-Host "=== Driver Reloaded ===" -ForegroundColor Green
+    exit
+}
+
 if ($BuildDriver -or $All) {
     if (-not (Test-Admin)) {
         Write-Host "ERROR: BuildDriver requires Administrator privileges!" -ForegroundColor Red
@@ -91,10 +146,29 @@ if ($BuildDriver -or $All) {
 
     Write-Host "=== Building Driver ===" -ForegroundColor Cyan
 
-    # Stop driver if running
+    # Stop driver if running and wait for it to fully unload
     Write-Host "Stopping driver if running..." -ForegroundColor Yellow
     sc.exe stop $serviceName 2>$null
-    Start-Sleep -Seconds 1
+
+    # Wait for driver to fully unload (file handle released)
+    $maxWait = 10
+    $waited = 0
+    while ($waited -lt $maxWait) {
+        Start-Sleep -Seconds 1
+        $waited++
+        # Check if file is still locked
+        try {
+            if (Test-Path $driverDst) {
+                [IO.File]::OpenWrite($driverDst).Close()
+            }
+            break  # File is not locked, we can proceed
+        } catch {
+            Write-Host "  Waiting for driver to unload... ($waited/$maxWait)" -ForegroundColor Gray
+        }
+    }
+    if ($waited -ge $maxWait) {
+        Write-Host "WARNING: Driver file may still be locked after ${maxWait}s" -ForegroundColor Yellow
+    }
 
     # Build driver (Release configuration)
     Write-Host "Building driver (Release x64)..." -ForegroundColor Cyan
@@ -129,14 +203,26 @@ if ($BuildDriver -or $All) {
     }
     Write-Host "Driver signed." -ForegroundColor Green
 
-    # Copy to system32
+    # Copy to system32 with retry
     Write-Host "Installing driver to System32..." -ForegroundColor Cyan
-    try {
-        Copy-Item $driverSrc $driverDst -Force
-        Write-Host "Driver installed." -ForegroundColor Green
-    } catch {
-        Write-Host "Failed to copy driver: $_" -ForegroundColor Red
-        exit 1
+    $copyRetries = 5
+    $copied = $false
+    for ($i = 1; $i -le $copyRetries; $i++) {
+        try {
+            Copy-Item $driverSrc $driverDst -Force
+            Write-Host "Driver installed." -ForegroundColor Green
+            $copied = $true
+            break
+        } catch {
+            if ($i -lt $copyRetries) {
+                Write-Host "  Copy attempt $i failed, retrying in 2s..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 2
+            } else {
+                Write-Host "Failed to copy driver after $copyRetries attempts: $_" -ForegroundColor Red
+                Write-Host "Try: sc.exe stop SerenoFilter && timeout 5 && copy manually" -ForegroundColor Yellow
+                exit 1
+            }
+        }
     }
 
     # Ensure service exists and start it

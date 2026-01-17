@@ -4,6 +4,76 @@ use sereno_core::types::Rule;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 
+/// Rule duration options for time-limited rules
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleDuration {
+    Once,           // Single use, then deleted
+    OneHour,        // 1 hour from now
+    OneDay,         // 24 hours from now
+    OneWeek,        // 7 days from now
+    Permanent,      // Forever
+}
+
+impl RuleDuration {
+    pub fn all() -> [RuleDuration; 5] {
+        [
+            RuleDuration::Once,
+            RuleDuration::OneHour,
+            RuleDuration::OneDay,
+            RuleDuration::OneWeek,
+            RuleDuration::Permanent,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RuleDuration::Once => "Once (this time only)",
+            RuleDuration::OneHour => "1 hour",
+            RuleDuration::OneDay => "1 day",
+            RuleDuration::OneWeek => "1 week",
+            RuleDuration::Permanent => "Forever",
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            RuleDuration::Once => "1x",
+            RuleDuration::OneHour => "1h",
+            RuleDuration::OneDay => "1d",
+            RuleDuration::OneWeek => "1w",
+            RuleDuration::Permanent => "∞",
+        }
+    }
+
+    pub fn to_validity(self) -> sereno_core::types::Validity {
+        use chrono::{Duration, Utc};
+        use sereno_core::types::Validity;
+
+        match self {
+            RuleDuration::Once => Validity::Once,
+            RuleDuration::OneHour => Validity::Timed {
+                expires_at: Utc::now() + Duration::hours(1),
+            },
+            RuleDuration::OneDay => Validity::Timed {
+                expires_at: Utc::now() + Duration::days(1),
+            },
+            RuleDuration::OneWeek => Validity::Timed {
+                expires_at: Utc::now() + Duration::weeks(1),
+            },
+            RuleDuration::Permanent => Validity::Permanent,
+        }
+    }
+}
+
+/// State for duration selection prompt
+#[derive(Debug, Clone)]
+pub struct DurationPrompt {
+    pub process_name: String,
+    pub destination: String,
+    pub port: u16,
+    pub selected_index: usize,
+}
+
 /// Active tab in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -221,6 +291,8 @@ pub struct ConnectionEvent {
     pub action: String,
     pub process_name: String,
     pub process_id: u32,
+    /// Full path to the executable
+    pub process_path: String,
     pub destination: String,
     /// Raw remote IP address (for matching SNI updates)
     pub remote_address: String,
@@ -232,6 +304,8 @@ pub struct ConnectionEvent {
     pub is_pending: bool,
     /// Driver request ID for pending ASK (needed to send verdict)
     pub request_id: Option<u64>,
+    /// Code signature status (None = not yet checked)
+    pub signature_status: Option<crate::signature::SignatureStatus>,
 }
 
 /// Main application state
@@ -274,6 +348,9 @@ pub struct App {
 
     /// Pending ASK connection (if any)
     pub pending_ask: Option<ConnectionEvent>,
+
+    /// Duration selection prompt (when creating a rule)
+    pub duration_prompt: Option<DurationPrompt>,
 
     /// Is admin mode?
     pub is_admin: bool,
@@ -326,6 +403,9 @@ pub struct App {
     /// Process cache by local port (local_port -> (process_name, remote_ip, destination))
     /// This enables TLM flow correlation since local port is unique per connection
     pub port_process_cache: HashMap<u16, (String, String, String)>,
+
+    /// Signature verification cache
+    pub signature_cache: crate::signature::SignatureCache,
 }
 
 impl Default for App {
@@ -344,6 +424,7 @@ impl Default for App {
             logs: VecDeque::with_capacity(1000),
             max_logs: 1000,
             pending_ask: None,
+            duration_prompt: None,
             is_admin: false,
             total_connections: 0,
             blocked_connections: 0,
@@ -361,6 +442,7 @@ impl Default for App {
             process_names: HashMap::new(),
             flow_history: HashMap::new(),
             port_process_cache: HashMap::new(),
+            signature_cache: crate::signature::SignatureCache::new(),
         }
     }
 }

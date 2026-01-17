@@ -34,6 +34,15 @@ pub enum EventResult {
         port: u16,
         current_action: String,
     },
+    /// Create a deny rule with specific duration
+    CreateDenyRule {
+        process_name: String,
+        destination: String,
+        port: u16,
+        duration: crate::tui::app::RuleDuration,
+    },
+    /// Cancel duration selection
+    CancelDurationPrompt,
 }
 
 /// Poll for and handle events
@@ -60,6 +69,11 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> EventResult {
     // Handle pending ASK prompt first
     if app.pending_ask.is_some() {
         return handle_pending_ask(app, key);
+    }
+
+    // Handle duration selection prompt
+    if app.duration_prompt.is_some() {
+        return handle_duration_prompt(app, key);
     }
 
     // Global keys
@@ -145,12 +159,23 @@ fn handle_monitor_key(app: &mut App, key: KeyEvent) -> EventResult {
         KeyCode::Char('t') | KeyCode::Char('T') => {
             // Toggle connection - create rule with opposite action
             if let Some(conn) = app.selected_connection_event() {
-                return EventResult::ToggleConnection {
-                    process_name: conn.process_name.clone(),
-                    destination: conn.destination.clone(),
-                    port: conn.port,
-                    current_action: conn.action.clone(),
-                };
+                if conn.action == "DENY" {
+                    // DENY → ALLOW: Just remove the rule (no prompt needed)
+                    return EventResult::ToggleConnection {
+                        process_name: conn.process_name.clone(),
+                        destination: conn.destination.clone(),
+                        port: conn.port,
+                        current_action: conn.action.clone(),
+                    };
+                } else {
+                    // ALLOW → DENY: Show duration selection prompt
+                    app.duration_prompt = Some(crate::tui::app::DurationPrompt {
+                        process_name: conn.process_name.clone(),
+                        destination: conn.destination.clone(),
+                        port: conn.port,
+                        selected_index: 4, // Default to "Permanent"
+                    });
+                }
             }
         }
         _ => {}
@@ -399,4 +424,102 @@ fn update_pending_connection(app: &mut App, pending: &crate::tui::app::Connectio
             }
         }
     }
+}
+
+/// Handle keys when duration selection prompt is shown
+fn handle_duration_prompt(app: &mut App, key: KeyEvent) -> EventResult {
+    use crate::tui::app::RuleDuration;
+
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(prompt) = &mut app.duration_prompt {
+                if prompt.selected_index > 0 {
+                    prompt.selected_index -= 1;
+                }
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(prompt) = &mut app.duration_prompt {
+                if prompt.selected_index < 4 {
+                    prompt.selected_index += 1;
+                }
+            }
+        }
+        KeyCode::Enter => {
+            // Confirm selection and create rule
+            if let Some(prompt) = app.duration_prompt.take() {
+                let durations = RuleDuration::all();
+                let duration = durations[prompt.selected_index];
+                app.log(format!(
+                    "Creating DENY rule for {}:{} ({})",
+                    prompt.destination, prompt.port, duration.label()
+                ));
+                return EventResult::CreateDenyRule {
+                    process_name: prompt.process_name,
+                    destination: prompt.destination,
+                    port: prompt.port,
+                    duration,
+                };
+            }
+        }
+        KeyCode::Esc | KeyCode::Char('q') => {
+            // Cancel
+            app.duration_prompt = None;
+            app.log("Cancelled rule creation".to_string());
+            return EventResult::CancelDurationPrompt;
+        }
+        // Quick keys for duration selection
+        KeyCode::Char('1') => {
+            if let Some(prompt) = app.duration_prompt.take() {
+                return EventResult::CreateDenyRule {
+                    process_name: prompt.process_name,
+                    destination: prompt.destination,
+                    port: prompt.port,
+                    duration: RuleDuration::Once,
+                };
+            }
+        }
+        KeyCode::Char('2') => {
+            if let Some(prompt) = app.duration_prompt.take() {
+                return EventResult::CreateDenyRule {
+                    process_name: prompt.process_name,
+                    destination: prompt.destination,
+                    port: prompt.port,
+                    duration: RuleDuration::OneHour,
+                };
+            }
+        }
+        KeyCode::Char('3') => {
+            if let Some(prompt) = app.duration_prompt.take() {
+                return EventResult::CreateDenyRule {
+                    process_name: prompt.process_name,
+                    destination: prompt.destination,
+                    port: prompt.port,
+                    duration: RuleDuration::OneDay,
+                };
+            }
+        }
+        KeyCode::Char('4') => {
+            if let Some(prompt) = app.duration_prompt.take() {
+                return EventResult::CreateDenyRule {
+                    process_name: prompt.process_name,
+                    destination: prompt.destination,
+                    port: prompt.port,
+                    duration: RuleDuration::OneWeek,
+                };
+            }
+        }
+        KeyCode::Char('5') => {
+            if let Some(prompt) = app.duration_prompt.take() {
+                return EventResult::CreateDenyRule {
+                    process_name: prompt.process_name,
+                    destination: prompt.destination,
+                    port: prompt.port,
+                    duration: RuleDuration::Permanent,
+                };
+            }
+        }
+        _ => {}
+    }
+    EventResult::Continue
 }

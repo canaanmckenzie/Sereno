@@ -153,6 +153,34 @@ impl Database {
         Ok(())
     }
 
+    /// Delete expired Timed rules (where expires_at < now)
+    /// Returns the number of rules deleted
+    pub fn delete_expired_rules(&self) -> Result<usize> {
+        let conn = self.conn.lock();
+        // SQLite doesn't natively compare ISO timestamps, but string comparison works for ISO 8601
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows = conn.execute(
+            "DELETE FROM rules WHERE validity LIKE '%\"type\":\"timed\"%'
+             AND json_extract(validity, '$.expires_at') < ?1",
+            params![now],
+        )?;
+        Ok(rows)
+    }
+
+    /// Get rules that will expire within the given duration
+    pub fn get_expiring_rules(&self, within_seconds: i64) -> Result<Vec<Rule>> {
+        let rules = self.get_rules()?;
+        let cutoff = chrono::Utc::now() + chrono::Duration::seconds(within_seconds);
+
+        Ok(rules.into_iter().filter(|r| {
+            if let Validity::Timed { expires_at } = &r.validity {
+                *expires_at <= cutoff
+            } else {
+                false
+            }
+        }).collect())
+    }
+
     // ========== Profile Operations ==========
 
     /// Insert a new profile

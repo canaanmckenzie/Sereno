@@ -140,7 +140,9 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the Monitor tab - live connection list
 fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
-    let header_cells = ["Time", "Action", "Process", "Destination", "Port", "Rule"]
+    use crate::signature::SignatureStatus;
+
+    let header_cells = ["Time", "Action", "Sig", "Process", "Destination", "Port"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
 
@@ -170,6 +172,14 @@ fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
             action_style
         };
 
+        // Format signature status
+        let (sig_label, sig_style) = match &conn.signature_status {
+            Some(SignatureStatus::Signed { .. }) => ("OK", Style::default().fg(Color::Green)),
+            Some(SignatureStatus::Unsigned) => ("!!", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Some(SignatureStatus::Invalid) => ("XX", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Some(SignatureStatus::Unknown) | None => ("?", Style::default().fg(Color::DarkGray)),
+        };
+
         // Format process name - handle System process (PID 4)
         let process_display = if conn.process_id == 4 {
             "System[4]".to_string()
@@ -189,10 +199,10 @@ fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
         Row::new(vec![
             Cell::from(conn.time.clone()),
             Cell::from(conn.action.clone()).style(final_action_style),
+            Cell::from(sig_label).style(sig_style),
             Cell::from(process_display),
             Cell::from(conn.destination.clone()),
             Cell::from(port_display),
-            Cell::from(conn.rule_name.clone().unwrap_or_default()),
         ])
         .style(row_style)
         .height(1)
@@ -203,10 +213,10 @@ fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
         [
             Constraint::Length(8),  // Time
             Constraint::Length(6),  // Action
-            Constraint::Length(20), // Process
+            Constraint::Length(3),  // Sig (signature status)
+            Constraint::Length(22), // Process
             Constraint::Min(20),    // Destination
             Constraint::Length(10), // Port
-            Constraint::Length(15), // Rule
         ],
     )
     .header(header)
@@ -492,6 +502,39 @@ fn format_bytes_short(bytes: u64) -> String {
     }
 }
 
+/// Format rule validity as a short string (for display)
+fn format_rule_validity(rule: &sereno_core::types::Rule) -> String {
+    use chrono::Utc;
+    use sereno_core::types::Validity;
+
+    match &rule.validity {
+        Validity::Permanent => "∞".to_string(),
+        Validity::Once => "1×".to_string(),
+        Validity::UntilQuit { .. } => "quit".to_string(),
+        Validity::Timed { expires_at } => {
+            let now = Utc::now();
+            if *expires_at <= now {
+                "expired".to_string()
+            } else {
+                let duration = *expires_at - now;
+                let hours = duration.num_hours();
+                let minutes = duration.num_minutes();
+                let days = duration.num_days();
+
+                if days > 0 {
+                    format!("{}d", days)
+                } else if hours > 0 {
+                    format!("{}h", hours)
+                } else if minutes > 0 {
+                    format!("{}m", minutes)
+                } else {
+                    "<1m".to_string()
+                }
+            }
+        }
+    }
+}
+
 /// Extract a human-readable target summary from rule conditions
 fn format_rule_target(rule: &sereno_core::types::Rule) -> String {
     use sereno_core::types::{Condition, DomainPattern, IpMatcher, PortMatcher};
@@ -553,7 +596,7 @@ fn format_rule_target(rule: &sereno_core::types::Rule) -> String {
 
 /// Draw the Rules tab
 fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
-    let header_cells = ["", "Action", "Target", "Name", "Pri", "Hits"]
+    let header_cells = ["", "Action", "Target", "TTL", "Hits"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
 
@@ -592,6 +635,16 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
         // Format the target conditions
         let target = format_rule_target(rule);
 
+        // Format validity/TTL
+        let validity = format_rule_validity(rule);
+        let validity_style = if validity == "expired" {
+            Style::default().fg(Color::Red)
+        } else if validity.ends_with('m') || validity.ends_with('h') {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
         // Enabled indicator merged with action display
         let enabled_indicator = if rule.enabled { "" } else { "(off) " };
         let action_display = format!("{}{}", enabled_indicator, rule.action);
@@ -600,8 +653,7 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
             Cell::from(select_indicator),
             Cell::from(action_display).style(action_style),
             Cell::from(target),
-            Cell::from(rule.name.clone()),
-            Cell::from(format!("{}", rule.priority)),
+            Cell::from(validity).style(validity_style),
             Cell::from(format!("{}", rule.hit_count)),
         ])
         .style(row_style)
@@ -620,9 +672,8 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
         [
             Constraint::Length(3),  // Sel (checkbox)
             Constraint::Length(12), // Action (with disabled indicator)
-            Constraint::Min(25),    // Target (domain, port, IP, etc.)
-            Constraint::Length(20), // Name
-            Constraint::Length(4),  // Priority
+            Constraint::Min(30),    // Target (domain, port, IP, etc.)
+            Constraint::Length(7),  // TTL (validity)
             Constraint::Length(5),  // Hits
         ],
     )
@@ -725,7 +776,34 @@ fn draw_settings_tab(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the footer with keyboard shortcuts and pending ASK prompt
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let content = if let Some(ref pending) = app.pending_ask {
+    use crate::tui::app::RuleDuration;
+
+    let content = if let Some(ref prompt) = app.duration_prompt {
+        // Show duration selection prompt
+        let durations = RuleDuration::all();
+        let mut spans = vec![
+            Span::styled(" BLOCK ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(&prompt.destination, Style::default().fg(Color::Cyan)),
+            Span::raw(format!(":{} for: ", prompt.port)),
+        ];
+
+        for (i, duration) in durations.iter().enumerate() {
+            let label = format!("[{}]{}", i + 1, duration.short_label());
+            if i == prompt.selected_index {
+                spans.push(Span::styled(label, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED)));
+            } else {
+                spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
+            }
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled("Enter", Style::default().fg(Color::Green)));
+        spans.push(Span::raw("=Confirm  "));
+        spans.push(Span::styled("Esc", Style::default().fg(Color::Red)));
+        spans.push(Span::raw("=Cancel"));
+
+        Line::from(spans)
+    } else if let Some(ref pending) = app.pending_ask {
         // Show pending ASK prompt
         Line::from(vec![
             Span::styled(" PENDING: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
