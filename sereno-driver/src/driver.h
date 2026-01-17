@@ -277,16 +277,19 @@ typedef struct _SERENO_BANDWIDTH_STATS {
 } SERENO_BANDWIDTH_STATS, *PSERENO_BANDWIDTH_STATS;
 
 // Verdict cache entry - for re-authorization after FwpsCompleteOperation0
-// Key: (ProcessId, RemotePort, DomainName) -> Verdict
-// UPDATED: Now includes domain name to allow different verdicts for different domains
-// on the same port (e.g., allow google.com:443, block evil.com:443)
-// Fallback: If domain is empty, matches by (ProcessId, RemotePort) only for backwards compatibility
+// Key: (ProcessId, RemoteIP, RemotePort, DomainName) -> Verdict
+// UPDATED: Now includes RemoteIP to prevent blocking all domains on the same port.
+// e.g., blocking evil.com (1.2.3.4:443) won't affect google.com (5.6.7.8:443)
+// Domain provides additional granularity when known (from SNI or DNS cache)
 typedef struct _VERDICT_CACHE_ENTRY {
     UINT64          Timestamp;
     UINT32          ProcessId;
+    UINT32          RemoteIpV4;         // IPv4 address (network byte order)
+    UINT8           RemoteIpV6[16];     // IPv6 address (if IsIPv6)
+    BOOLEAN         IsIPv6;             // TRUE = use RemoteIpV6, FALSE = use RemoteIpV4
     UINT16          RemotePort;
     WCHAR           DomainName[256];    // Domain from SNI or DNS cache
-    UINT32          DomainLength;       // 0 = no domain (match by port only)
+    UINT32          DomainLength;       // 0 = no domain (match by IP+port only)
     SERENO_VERDICT  Verdict;
     BOOLEAN         InUse;
 } VERDICT_CACHE_ENTRY, *PVERDICT_CACHE_ENTRY;

@@ -1714,8 +1714,8 @@ SerenoCompletePendingRequest(
  * SerenoVerdictCacheAdd - Add a verdict to the cache
  * Called BEFORE FwpsCompleteOperation0 to remember the verdict for re-auth
  *
- * UPDATED: Now keys by (ProcessId, RemotePort, DomainName) for domain-aware blocking.
- * If DomainName is NULL or DomainLength is 0, the entry has no domain (fallback to port-only).
+ * Key: (ProcessId, RemoteIP, RemotePort, DomainName) -> Verdict
+ * This ensures blocking evil.com (1.2.3.4:443) doesn't affect google.com (5.6.7.8:443)
  */
 VOID
 SerenoVerdictCacheAdd(
@@ -1738,13 +1738,9 @@ SerenoVerdictCacheAdd(
     UINT32 i;
     BOOLEAN hasDomain = (DomainName != NULL && DomainLength > 0);
 
-    UNREFERENCED_PARAMETER(IsIPv6);
-    UNREFERENCED_PARAMETER(RemoteIpV4);
-    UNREFERENCED_PARAMETER(RemoteIpV6);
-
     KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
 
-    // First pass: look for existing entry with same (pid, port, domain) OR find empty/oldest slot
+    // First pass: look for existing entry with same (pid, ip, port, domain) OR find empty/oldest slot
     for (i = 0; i < MAX_VERDICT_CACHE_ENTRIES; i++) {
         if (!Context->VerdictCache[i].InUse) {
             // Empty slot - candidate for new entry
@@ -1763,22 +1759,39 @@ SerenoVerdictCacheAdd(
             continue;
         }
 
-        // Check if this is an existing entry for same (pid, port, domain) - UPDATE it
+        // Check if this is an existing entry for same (pid, ip, port, domain) - UPDATE it
         if (Context->VerdictCache[i].ProcessId == ProcessId &&
-            Context->VerdictCache[i].RemotePort == RemotePort) {
-            // Check domain match
-            BOOLEAN cacheDomain = (Context->VerdictCache[i].DomainLength > 0);
-            if (hasDomain && cacheDomain) {
-                // Both have domains - must match
-                if (Context->VerdictCache[i].DomainLength == DomainLength &&
-                    _wcsnicmp(Context->VerdictCache[i].DomainName, DomainName, DomainLength) == 0) {
+            Context->VerdictCache[i].RemotePort == RemotePort &&
+            Context->VerdictCache[i].IsIPv6 == IsIPv6) {
+
+            // Check IP match
+            BOOLEAN ipMatch = FALSE;
+            if (IsIPv6) {
+                if (RemoteIpV6 != NULL &&
+                    RtlCompareMemory(Context->VerdictCache[i].RemoteIpV6, RemoteIpV6, 16) == 16) {
+                    ipMatch = TRUE;
+                }
+            } else {
+                if (Context->VerdictCache[i].RemoteIpV4 == RemoteIpV4) {
+                    ipMatch = TRUE;
+                }
+            }
+
+            if (ipMatch) {
+                // IP matches, now check domain match
+                BOOLEAN cacheDomain = (Context->VerdictCache[i].DomainLength > 0);
+                if (hasDomain && cacheDomain) {
+                    // Both have domains - must match
+                    if (Context->VerdictCache[i].DomainLength == DomainLength &&
+                        _wcsnicmp(Context->VerdictCache[i].DomainName, DomainName, DomainLength) == 0) {
+                        targetIndex = i;
+                    }
+                } else if (!hasDomain && !cacheDomain) {
+                    // Neither has domain - match
                     targetIndex = i;
                 }
-            } else if (!hasDomain && !cacheDomain) {
-                // Neither has domain - match
-                targetIndex = i;
+                // If one has domain and other doesn't, they're different entries
             }
-            // If one has domain and other doesn't, they're different entries
         }
 
         // Track oldest for eviction if needed
@@ -1796,6 +1809,13 @@ SerenoVerdictCacheAdd(
     // Store/update in cache
     Context->VerdictCache[targetIndex].Timestamp = now;
     Context->VerdictCache[targetIndex].ProcessId = ProcessId;
+    Context->VerdictCache[targetIndex].IsIPv6 = IsIPv6;
+    Context->VerdictCache[targetIndex].RemoteIpV4 = RemoteIpV4;
+    if (IsIPv6 && RemoteIpV6 != NULL) {
+        RtlCopyMemory(Context->VerdictCache[targetIndex].RemoteIpV6, RemoteIpV6, 16);
+    } else {
+        RtlZeroMemory(Context->VerdictCache[targetIndex].RemoteIpV6, 16);
+    }
     Context->VerdictCache[targetIndex].RemotePort = RemotePort;
     Context->VerdictCache[targetIndex].Verdict = Verdict;
     Context->VerdictCache[targetIndex].InUse = TRUE;
@@ -1819,9 +1839,8 @@ SerenoVerdictCacheAdd(
  * Called during re-authorization (no completion handle available)
  * Returns TRUE if found (and sets Verdict), FALSE if not found
  *
- * UPDATED: Now matches by (ProcessId, RemotePort, DomainName) for domain-aware blocking.
- * Fallback behavior: If looking up with a domain and no domain-specific match is found,
- * we also check for a domain-less (pid, port) match for backwards compatibility.
+ * Key: (ProcessId, RemoteIP, RemotePort, DomainName) -> Verdict
+ * Matches by IP first, then domain if both have it. No fallback to avoid blocking wrong IPs.
  */
 BOOLEAN
 SerenoVerdictCacheLookup(
@@ -1841,11 +1860,6 @@ SerenoVerdictCacheLookup(
     UINT32 i;
     BOOLEAN found = FALSE;
     BOOLEAN hasDomain = (DomainName != NULL && DomainLength > 0);
-    UINT32 fallbackIndex = MAX_VERDICT_CACHE_ENTRIES;  // For port-only fallback
-
-    UNREFERENCED_PARAMETER(IsIPv6);
-    UNREFERENCED_PARAMETER(RemoteIpV4);
-    UNREFERENCED_PARAMETER(RemoteIpV6);
 
     KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
 
@@ -1860,11 +1874,27 @@ SerenoVerdictCacheLookup(
             continue;
         }
 
-        // Check ProcessId and RemotePort
+        // Check ProcessId, RemotePort, and IP version
         if (Context->VerdictCache[i].ProcessId != ProcessId) continue;
         if (Context->VerdictCache[i].RemotePort != RemotePort) continue;
+        if (Context->VerdictCache[i].IsIPv6 != IsIPv6) continue;
 
-        // Check domain match
+        // Check IP match - CRITICAL: this is what fixes the "block all domains on port" bug
+        BOOLEAN ipMatch = FALSE;
+        if (IsIPv6) {
+            if (RemoteIpV6 != NULL &&
+                RtlCompareMemory(Context->VerdictCache[i].RemoteIpV6, RemoteIpV6, 16) == 16) {
+                ipMatch = TRUE;
+            }
+        } else {
+            if (Context->VerdictCache[i].RemoteIpV4 == RemoteIpV4) {
+                ipMatch = TRUE;
+            }
+        }
+
+        if (!ipMatch) continue;
+
+        // IP matches! Now check domain match
         BOOLEAN cacheDomain = (Context->VerdictCache[i].DomainLength > 0);
 
         if (hasDomain && cacheDomain) {
@@ -1876,22 +1906,18 @@ SerenoVerdictCacheLookup(
                 break;
             }
         } else if (!hasDomain && !cacheDomain) {
-            // Neither has domain - match
+            // Neither has domain - IP match is sufficient
             *Verdict = Context->VerdictCache[i].Verdict;
             found = TRUE;
             break;
         } else if (!cacheDomain) {
-            // Cache has no domain but we have one - remember as fallback
-            // This allows a port-level block to still apply when domain is known
-            fallbackIndex = i;
+            // Cache has no domain but we have one - still match by IP
+            // This allows the cached IP verdict to apply even when domain becomes known later
+            *Verdict = Context->VerdictCache[i].Verdict;
+            found = TRUE;
+            break;
         }
-        // If cache has domain but we don't, skip (we can't match specific domain)
-    }
-
-    // If no exact match found but we have a port-only fallback, use it
-    if (!found && fallbackIndex < MAX_VERDICT_CACHE_ENTRIES) {
-        *Verdict = Context->VerdictCache[fallbackIndex].Verdict;
-        found = TRUE;
+        // If cache has domain but we don't, skip (can't verify domain match)
     }
 
     KeReleaseSpinLock(&Context->VerdictCacheLock, oldIrql);
@@ -1899,13 +1925,12 @@ SerenoVerdictCacheLookup(
 }
 
 /*
- * SerenoVerdictCacheLookupByAddress - Lookup by port only (for re-auth with pid=0)
+ * SerenoVerdictCacheLookupByAddress - Lookup by IP and port (for re-auth with pid=0)
  * This is used when re-authorization doesn't have process context.
- * Returns the most recent verdict for the given port.
+ * Returns the most recent verdict for the given IP:port.
  *
- * NOTE: This is a fallback - ideally we'd have the PID. With port-only matching,
- * we might return a verdict from a different process, but this is safer than
- * creating a new pending request during re-auth.
+ * NOTE: This is a fallback when PID is unavailable. Matching by IP:port is safe
+ * because the same IP:port should have the same verdict regardless of process.
  */
 BOOLEAN
 SerenoVerdictCacheLookupByAddress(
@@ -1923,13 +1948,9 @@ SerenoVerdictCacheLookupByAddress(
     BOOLEAN found = FALSE;
     UINT64 newestTime = 0;
 
-    UNREFERENCED_PARAMETER(IsIPv6);
-    UNREFERENCED_PARAMETER(RemoteIpV4);
-    UNREFERENCED_PARAMETER(RemoteIpV6);
-
     KeAcquireSpinLock(&Context->VerdictCacheLock, &oldIrql);
 
-    // Find the most recent entry for this port
+    // Find the most recent entry for this IP:port
     for (i = 0; i < MAX_VERDICT_CACHE_ENTRIES; i++) {
         if (!Context->VerdictCache[i].InUse) {
             continue;
@@ -1941,10 +1962,26 @@ SerenoVerdictCacheLookupByAddress(
             continue;
         }
 
-        // Match by port only
+        // Match by IP version and port first
+        if (Context->VerdictCache[i].IsIPv6 != IsIPv6) continue;
         if (Context->VerdictCache[i].RemotePort != RemotePort) continue;
 
-        // Take the most recent verdict for this port
+        // Check IP match
+        BOOLEAN ipMatch = FALSE;
+        if (IsIPv6) {
+            if (RemoteIpV6 != NULL &&
+                RtlCompareMemory(Context->VerdictCache[i].RemoteIpV6, RemoteIpV6, 16) == 16) {
+                ipMatch = TRUE;
+            }
+        } else {
+            if (Context->VerdictCache[i].RemoteIpV4 == RemoteIpV4) {
+                ipMatch = TRUE;
+            }
+        }
+
+        if (!ipMatch) continue;
+
+        // Take the most recent verdict for this IP:port
         if (Context->VerdictCache[i].Timestamp > newestTime) {
             newestTime = Context->VerdictCache[i].Timestamp;
             *Verdict = Context->VerdictCache[i].Verdict;

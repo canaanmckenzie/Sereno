@@ -7278,3 +7278,381 @@ b81d:c554:0) pid=4
 [17:02:44] TLM: 64 flows, sent=19760, recv=170497
 [17:02:45] TLM: 64 flows, sent=19760, recv=170497
 [17:02:46] TLM: 64 flows, sent=19760, recv=170649
+[07:18:30] Got request 2 from pwsh.exe (149.247.188.52:443) pid=4536
+[07:18:30] Sent Allow for request 2 (ASK)
+[07:18:30] TLM: 3 flows, sent=1536, recv=5354
+[07:18:31] TLM: 5 flows, sent=1556, recv=5863
+[07:18:32] TLM: 5 flows, sent=1556, recv=5863
+[07:18:33] TLM: 6 flows, sent=1576, recv=5887
+[07:18:34] TLM: 7 flows, sent=1608, recv=6071
+[07:18:35] TLM: 11 flows, sent=2346, recv=6777
+[07:18:36] TLM: 11 flows, sent=4280, recv=8647
+[07:18:37] TLM: 11 flows, sent=4280, recv=8799
+[07:18:37] Got request 5 from curl.exe (2607:f8b0:4006:802::200e:443) pid=7852
+[07:18:37] Sent Allow for request 5 (ASK)
+[07:18:37] Got request 6 from lsass.exe (2607:f8b0:4006:800::2003:80) pid=1192
+[07:18:37] Sent Allow for request 6 (ASK)
+[07:18:38] TLM: 15 flows, sent=5832, recv=19195
+[07:18:39] TLM: 15 flows, sent=5832, recv=19315
+[07:18:40] TLM: 17 flows, sent=5832, recv=20132
+[07:18:41] TLM: 17 flows, sent=5832, recv=20132
+[07:18:42] TLM: 17 flows, sent=5832, recv=20252
+[07:18:42] Got request 7 from curl.exe (2607:f8b0:4006:802::200e:443) pid=3356
+[07:18:42] Sent Allow for request 7 (ASK)
+[07:18:43] TLM: 20 flows, sent=6975, recv=28412
+[07:18:44] TLM: 20 flows, sent=6975, recv=28412
+[07:18:45] TLM: 20 flows, sent=6975, recv=29317
+[07:18:46] TLM: 20 flows, sent=6975, recv=29349
+[07:18:47] TLM: 20 flows, sent=6975, recv=29349
+[07:18:48] TLM: 20 flows, sent=6975, recv=29469
+[07:18:49] TLM: 20 flows, sent=6975, recv=29501
+[07:18:50] TLM: 20 flows, sent=6975, recv=30286
+[07:18:51] TLM: 20 flows, sent=6975, recv=30406
+[07:18:52] TLM: 22 flows, sent=6975, recv=30778
+[07:18:53] TLM: 22 flows, sent=6975, recv=31118
+[07:18:55] TLM: 23 flows, sent=7035, recv=31673
+[07:18:56] TLM: 23 flows, sent=7055, recv=32013
+[07:18:57] TLM: 23 flows, sent=7055, recv=32013
+[07:18:58] TLM: 23 flows, sent=7055, recv=32133
+[07:18:59] TLM: 24 flows, sent=7095, recv=32196
+[07:19:00] TLM: 25 flows, sent=7135, recv=32196
+[07:19:01] TLM: 25 flows, sent=7167, recv=32380
+[07:19:02] TLM: 26 flows, sent=7188, recv=32380
+[07:19:03] TLM: 26 flows, sent=7188, recv=33165
+[07:19:03] Got request 13 from Unknown (fe80::7203:7eff:fe0b:6eea:0) pid=4
+[07:19:03] Sent Allow for request 13 (ASK)
+[07:19:04] TLM: 26 flows, sent=7188, recv=33317
+[07:19:05] TLM: 27 flows, sent=7220, recv=33341
+[07:19:06] TLM: 28 flows, sent=7935, recv=33698
+[07:19:07] TLM: 28 flows, sent=7935, recv=34635
+[07:19:07] Got request 15 from svchost.exe (17.173.189.20:443) pid=3792
+[07:19:07] Sent Allow for request 15 (ASK)
+[07:19:08] TLM: 29 flows, sent=8097, recv=35051
+[07:19:09] TLM: 29 flows, sent=8097, recv=35051
+[07:19:10] TLM: 30 flows, sent=8129, recv=35235
+[07:19:10] Got request 16 from svchost.exe (17.173.189.20:443) pid=3792
+[07:19:10] Sent Allow for request 16 (ASK)
+[07:19:11] TLM: 31 flows, sent=8181, recv=35235
+[07:19:12] TLM: 31 flows, sent=8181, recv=36020
+[07:19:13] TLM: 31 flows, sent=8181, recv=36172
+[07:19:14] TLM: 31 flows, sent=8181, recv=36172
+[07:19:15] TLM: 31 flows, sent=8181, recv=36172
+[07:19:16] TLM: 31 flows, sent=8181, recv=36292
+[07:19:17] TLM: 31 flows, sent=8181, recv=36324
+[07:19:18] TLM: 31 flows, sent=8202, recv=36324
+[07:19:18] Got request 17 from svchost.exe (17.173.189.20:443) pid=3792
+[07:19:18] Sent Allow for request 17 (ASK)
+[07:19:19] TLM: 32 flows, sent=8254, recv=36476
+[07:19:20] TLM: 32 flows, sent=8254, recv=36476
+[07:19:21] TLM: 32 flows, sent=8254, recv=36596
+[07:19:22] TLM: 32 flows, sent=8254, recv=36628
+[07:19:23] TLM: 33 flows, sent=8275, recv=36628
+[07:19:24] TLM: 33 flows, sent=8275, recv=37533
+[07:19:25] TLM: 33 flows, sent=8275, recv=37565
+[07:19:26] TLM: 33 flows, sent=8275, recv=37565
+[07:19:27] TLM: 33 flows, sent=8275, recv=37685
+[07:19:28] TLM: 33 flows, sent=8275, recv=37717
+[07:19:29] TLM: 33 flows, sent=8275, recv=38502
+[07:19:30] TLM: 33 flows, sent=8984, recv=38979
+[07:19:32] TLM: 33 flows, sent=8984, recv=39011
+[07:19:33] TLM: 33 flows, sent=8984, recv=39011
+[07:19:34] TLM: 33 flows, sent=8984, recv=39131
+[07:19:35] TLM: 33 flows, sent=8984, recv=39948
+[07:19:36] TLM: 34 flows, sent=9024, recv=39948
+[07:19:37] TLM: 34 flows, sent=9024, recv=40100
+[07:19:38] TLM: 34 flows, sent=9064, recv=40100
+[07:19:39] TLM: 34 flows, sent=9064, recv=40100
+[07:19:40] TLM: 34 flows, sent=9064, recv=40220
+[07:19:41] TLM: 34 flows, sent=9064, recv=40252
+[07:19:41] Got request 20 from curl.exe (2607:f8b0:4006:80b::200e:443) pid=11384
+[07:19:41] Sent Allow for request 20 (ASK)
+[07:19:42] TLM: 37 flows, sent=9386, recv=40318
+[07:19:43] TLM: 37 flows, sent=9418, recv=40470
+[07:19:44] TLM: 37 flows, sent=9418, recv=40502
+[07:19:45] TLM: 37 flows, sent=9418, recv=40502
+[07:19:45] Got request 21 from curl.exe (2606:7100:1:67::26:80) pid=9264
+[07:19:45] Sent Allow for request 21 (ASK)
+[07:19:45] Got request 22 from svchost.exe (17.173.189.20:443) pid=3792
+[07:19:45] Sent Allow for request 22 (ASK)
+[07:19:46] TLM: 41 flows, sent=9992, recv=41928
+[07:19:47] TLM: 41 flows, sent=9992, recv=41928
+[07:19:48] TLM: 41 flows, sent=9992, recv=41928
+[07:19:49] TLM: 41 flows, sent=9992, recv=42080
+[07:19:50] TLM: 41 flows, sent=9992, recv=42080
+[07:19:51] TLM: 41 flows, sent=9992, recv=42865
+[07:19:52] TLM: 41 flows, sent=9992, recv=43017
+[07:19:52] Got request 23 from curl.exe (2606:7100:1:67::26:443) pid=2252
+[07:19:52] Sent Allow for request 23 (ASK)
+[07:19:53] TLM: 46 flows, sent=11506, recv=81662
+[07:19:54] Got request 24 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:19:54] Sent Allow for request 24 (ASK)
+[07:19:54] TLM: 47 flows, sent=11558, recv=81662
+[07:19:54] Got request 25 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:19:54] Sent Allow for request 25 (ASK)
+[07:19:55] TLM: 48 flows, sent=11610, recv=81814
+[07:19:56] TLM: 48 flows, sent=11610, recv=82599
+[07:19:57] TLM: 48 flows, sent=11610, recv=82719
+[07:19:58] Got request 26 from curl.exe (2607:f8b0:4006:80b::200e:443) pid=6580
+[07:19:58] Sent Allow for request 26 (ASK)
+[07:19:58] TLM: 51 flows, sent=11896, recv=82761
+[07:19:59] TLM: 52 flows, sent=11936, recv=82761
+[07:20:00] TLM: 52 flows, sent=11936, recv=82881
+[07:20:01] TLM: 52 flows, sent=11936, recv=82913
+[07:20:02] Got request 27 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:02] Sent Allow for request 27 (ASK)
+[07:20:02] TLM: 55 flows, sent=11988, recv=83631
+[07:20:03] TLM: 55 flows, sent=12009, recv=85417
+[07:20:04] TLM: 55 flows, sent=12009, recv=85417
+[07:20:05] TLM: 55 flows, sent=12009, recv=85417
+[07:20:06] TLM: 55 flows, sent=12721, recv=85894
+[07:20:07] TLM: 55 flows, sent=12721, recv=85926
+[07:20:08] Got request 28 from curl.exe (2607:f8b0:4006:80b::200e:443) pid=5708
+[07:20:08] Sent Allow for request 28 (ASK)
+[07:20:09] TLM: 58 flows, sent=13039, recv=86753
+[07:20:09] Got request 29 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:09] Sent Allow for request 29 (ASK)
+[07:20:10] TLM: 59 flows, sent=13091, recv=86905
+[07:20:11] TLM: 59 flows, sent=13091, recv=86905
+[07:20:12] TLM: 59 flows, sent=13091, recv=86905
+[07:20:13] TLM: 59 flows, sent=13091, recv=87025
+[07:20:14] TLM: 59 flows, sent=13091, recv=87842
+[07:20:15] Got request 30 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:15] Sent Allow for request 30 (ASK)
+[07:20:15] TLM: 60 flows, sent=13123, recv=87842
+[07:20:15] Got request 31 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:15] Sent Allow for request 31 (ASK)
+[07:20:16] TLM: 61 flows, sent=13195, recv=87994
+[07:20:17] TLM: 61 flows, sent=13195, recv=87994
+[07:20:18] TLM: 61 flows, sent=13195, recv=87994
+[07:20:19] TLM: 61 flows, sent=13195, recv=88931
+[07:20:20] TLM: 61 flows, sent=13195, recv=88931
+[07:20:20] Got request 32 from curl.exe (2607:f8b0:4006:80b::200e:443) pid=9984
+[07:20:20] Sent Allow for request 32 (ASK)
+[07:20:20] Got request 33 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:20] Sent Allow for request 33 (ASK)
+[07:20:21] TLM: 64 flows, sent=13481, recv=88941
+[07:20:22] TLM: 64 flows, sent=13481, recv=89093
+[07:20:23] TLM: 64 flows, sent=13481, recv=89093
+[07:20:24] TLM: 64 flows, sent=13481, recv=89093
+[07:20:25] TLM: 64 flows, sent=13481, recv=89213
+[07:20:26] TLM: 64 flows, sent=13481, recv=89245
+[07:20:27] TLM: 64 flows, sent=13481, recv=89245
+[07:20:28] Got request 34 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:28] Sent Allow for request 34 (ASK)
+[07:20:28] TLM: 64 flows, sent=13481, recv=89365
+[07:20:29] TLM: 64 flows, sent=13481, recv=89397
+[07:20:30] TLM: 64 flows, sent=13481, recv=90182
+[07:20:30] Got request 35 from curl.exe (2607:f8b0:4006:80b::200e:443) pid=8900
+[07:20:30] Sent Allow for request 35 (ASK)
+[07:20:31] TLM: 64 flows, sent=13481, recv=90334
+[07:20:32] TLM: 64 flows, sent=13481, recv=90334
+[07:20:33] TLM: 64 flows, sent=13513, recv=90366
+[07:20:33] Got request 36 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:33] Sent Allow for request 36 (ASK)
+[07:20:34] TLM: 64 flows, sent=13513, recv=90518
+[07:20:35] TLM: 64 flows, sent=13513, recv=91303
+[07:20:36] TLM: 64 flows, sent=13513, recv=92037
+[07:20:37] TLM: 64 flows, sent=13513, recv=92069
+[07:20:38] Got request 37 from curl.exe (2607:f8b0:4006:80b::200e:443) pid=388
+[07:20:38] Sent Allow for request 37 (ASK)
+[07:20:38] TLM: 64 flows, sent=13513, recv=92069
+[07:20:39] TLM: 64 flows, sent=13513, recv=92189
+[07:20:40] TLM: 64 flows, sent=13513, recv=93006
+[07:20:41] Got request 38 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:41] Sent Allow for request 38 (ASK)
+[07:20:41] TLM: 64 flows, sent=13513, recv=93006
+[07:20:42] TLM: 64 flows, sent=13513, recv=93126
+[07:20:44] TLM: 64 flows, sent=13513, recv=93158
+[07:20:45] TLM: 64 flows, sent=13513, recv=93158
+[07:20:46] TLM: 64 flows, sent=13553, recv=93310
+[07:20:47] TLM: 64 flows, sent=13553, recv=93310
+[07:20:47] Got request 39 from MpDefenderCoreService.exe (9.173.189.20:443) pid=3880
+[07:20:47] Sent Allow for request 39 (ASK)
+[07:20:48] TLM: 64 flows, sent=13553, recv=93310
+[07:20:49] TLM: 64 flows, sent=13553, recv=93430
+[07:20:50] TLM: 64 flows, sent=13553, recv=93462
+[07:20:51] TLM: 64 flows, sent=13553, recv=93462
+[07:20:52] TLM: 64 flows, sent=13553, recv=93582
+[07:20:53] TLM: 64 flows, sent=13553, recv=94399
+[07:20:54] TLM: 64 flows, sent=13553, recv=94399
+[07:20:55] TLM: 64 flows, sent=13553, recv=94551
+[07:20:56] TLM: 64 flows, sent=13553, recv=94551
+[07:20:57] TLM: 64 flows, sent=13553, recv=95336
+[07:20:58] Got request 40 from svchost.exe (17.173.189.20:443) pid=3792
+[07:20:58] Sent Allow for request 40 (ASK)
+[07:20:58] TLM: 64 flows, sent=13553, recv=95488
+[07:20:59] TLM: 64 flows, sent=13553, recv=95488
+[07:21:00] TLM: 64 flows, sent=13553, recv=95488
+[07:21:01] TLM: 64 flows, sent=13553, recv=95608
+[07:21:02] TLM: 64 flows, sent=13553, recv=96425
+[07:21:03] TLM: 64 flows, sent=13553, recv=96425
+[07:21:04] TLM: 64 flows, sent=13553, recv=96577
+[07:21:05] TLM: 64 flows, sent=13553, recv=96577
+[07:21:06] TLM: 64 flows, sent=14265, recv=96934
+[07:21:07] TLM: 64 flows, sent=14265, recv=97086
+[07:21:08] TLM: 64 flows, sent=14265, recv=97086
+[07:21:09] TLM: 64 flows, sent=14265, recv=97086
+[07:21:10] TLM: 64 flows, sent=14265, recv=97238
+[07:21:11] TLM: 64 flows, sent=14265, recv=97238
+[07:21:12] TLM: 64 flows, sent=14265, recv=97238
+[07:21:12] Got request 41 from Code.exe (8.173.189.20:443) pid=10084
+[07:21:12] Sent Allow for request 41 (ASK)
+[07:21:13] TLM: 64 flows, sent=14265, recv=97390
+[07:21:14] TLM: 64 flows, sent=14265, recv=98175
+[07:21:15] TLM: 64 flows, sent=14265, recv=98295
+[07:21:15] Got request 42 from Code.exe (8.173.189.20:443) pid=10084
+[07:21:15] Sent Allow for request 42 (ASK)
+[07:21:16] TLM: 64 flows, sent=14265, recv=98327
+[07:21:17] Got request 43 from Unknown (fe80::7203:7eff:fe0b:6eea:0) pid=4
+[07:21:17] Sent Allow for request 43 (ASK)
+[07:21:17] TLM: 64 flows, sent=14265, recv=99265
+[07:21:18] TLM: 64 flows, sent=14297, recv=99979
+[07:21:19] TLM: 64 flows, sent=14297, recv=100796
+[07:21:20] TLM: 64 flows, sent=14297, recv=101358
+[07:21:21] TLM: 64 flows, sent=14297, recv=101478
+[07:21:22] TLM: 64 flows, sent=14297, recv=101510
+[07:21:24] TLM: 64 flows, sent=14297, recv=101510
+[07:21:25] TLM: 64 flows, sent=14297, recv=103009
+[07:21:26] TLM: 64 flows, sent=14297, recv=103041
+[07:21:27] TLM: 64 flows, sent=14297, recv=103041
+[07:21:28] TLM: 64 flows, sent=14297, recv=103193
+[07:21:29] TLM: 64 flows, sent=14297, recv=103193
+[07:21:30] TLM: 64 flows, sent=14297, recv=103193
+[07:21:31] TLM: 64 flows, sent=14297, recv=103313
+[07:21:32] TLM: 64 flows, sent=14297, recv=103345
+[07:21:33] TLM: 64 flows, sent=14297, recv=103907
+[07:21:34] TLM: 64 flows, sent=14297, recv=104027
+[07:21:35] TLM: 64 flows, sent=14297, recv=104059
+[07:21:36] TLM: 64 flows, sent=14297, recv=104059
+[07:21:37] TLM: 64 flows, sent=14297, recv=104996
+[07:21:38] TLM: 64 flows, sent=14297, recv=104996
+[07:21:39] TLM: 64 flows, sent=14297, recv=104996
+[07:21:40] TLM: 64 flows, sent=14297, recv=105116
+[07:21:41] TLM: 64 flows, sent=14297, recv=105933
+[07:21:42] TLM: 64 flows, sent=14297, recv=105933
+[07:21:43] TLM: 64 flows, sent=14297, recv=106053
+[07:21:44] TLM: 64 flows, sent=14297, recv=106085
+[07:21:45] TLM: 64 flows, sent=14297, recv=106085
+[07:21:46] TLM: 64 flows, sent=14297, recv=107022
+[07:21:47] TLM: 64 flows, sent=14297, recv=107022
+[07:21:48] TLM: 64 flows, sent=14329, recv=107054
+[07:21:49] TLM: 64 flows, sent=14329, recv=107768
+[07:21:50] TLM: 64 flows, sent=14329, recv=107768
+[07:21:51] TLM: 64 flows, sent=14329, recv=107768
+[07:21:52] TLM: 64 flows, sent=14329, recv=107920
+[07:21:53] TLM: 64 flows, sent=14329, recv=107920
+[07:21:54] TLM: 64 flows, sent=14329, recv=107920
+[07:21:55] TLM: 64 flows, sent=14329, recv=108072
+[07:21:56] TLM: 64 flows, sent=14329, recv=108072
+[07:21:57] TLM: 64 flows, sent=14329, recv=108192
+[07:21:58] TLM: 64 flows, sent=14329, recv=109009
+[07:21:59] TLM: 64 flows, sent=14329, recv=109009
+[07:22:00] TLM: 64 flows, sent=14329, recv=109161
+[07:22:01] TLM: 64 flows, sent=14329, recv=109161
+[07:22:02] TLM: 64 flows, sent=14329, recv=109161
+[07:22:03] TLM: 64 flows, sent=14329, recv=110467
+[07:22:04] TLM: 64 flows, sent=14329, recv=111274
+[07:22:05] TLM: 64 flows, sent=14329, recv=111274
+[07:22:07] TLM: 64 flows, sent=14329, recv=111394
+[07:22:08] TLM: 64 flows, sent=14329, recv=111426
+[07:22:09] TLM: 64 flows, sent=14329, recv=112211
+[07:22:10] TLM: 64 flows, sent=14329, recv=112331
+[07:22:11] TLM: 64 flows, sent=14329, recv=112363
+[07:22:12] TLM: 64 flows, sent=14329, recv=112363
+[07:22:13] TLM: 64 flows, sent=14329, recv=112515
+[07:22:14] TLM: 64 flows, sent=14329, recv=112515
+[07:22:15] TLM: 64 flows, sent=14329, recv=112515
+[07:22:16] TLM: 64 flows, sent=14329, recv=112635
+[07:22:17] TLM: 64 flows, sent=14329, recv=112667
+[07:22:18] TLM: 64 flows, sent=14329, recv=112667
+[07:22:19] TLM: 64 flows, sent=14329, recv=112787
+[07:22:20] TLM: 64 flows, sent=14329, recv=113604
+[07:22:21] TLM: 64 flows, sent=14369, recv=114166
+[07:22:22] TLM: 64 flows, sent=14369, recv=114318
+[07:22:23] TLM: 64 flows, sent=14369, recv=114318
+[07:22:24] TLM: 64 flows, sent=14369, recv=114318
+[07:22:24] Got request 44 from Code.exe (2620:1ec:48:1::40:443) pid=9384
+[07:22:24] Sent Allow for request 44 (ASK)
+[07:22:25] TLM: 64 flows, sent=14369, recv=115223
+[07:22:26] TLM: 64 flows, sent=14369, recv=115255
+[07:22:27] TLM: 64 flows, sent=14369, recv=115255
+[07:22:28] TLM: 64 flows, sent=14369, recv=115375
+[07:22:29] TLM: 64 flows, sent=14369, recv=115407
+[07:22:30] TLM: 64 flows, sent=14401, recv=116224
+[07:22:31] TLM: 64 flows, sent=14401, recv=116376
+[07:22:32] TLM: 64 flows, sent=14401, recv=116376
+[07:22:33] TLM: 64 flows, sent=14401, recv=116376
+[07:22:34] TLM: 64 flows, sent=14401, recv=116528
+[07:22:35] TLM: 64 flows, sent=14401, recv=116528
+[07:22:36] TLM: 64 flows, sent=14401, recv=116528
+[07:22:37] TLM: 64 flows, sent=14401, recv=117294
+[07:22:38] TLM: 64 flows, sent=14401, recv=117294
+[07:22:39] TLM: 64 flows, sent=14401, recv=117414
+[07:22:40] TLM: 64 flows, sent=14401, recv=117446
+[07:22:41] TLM: 64 flows, sent=14401, recv=117446
+[07:22:42] TLM: 64 flows, sent=14401, recv=118351
+[07:22:43] TLM: 64 flows, sent=14401, recv=118383
+[07:22:44] TLM: 64 flows, sent=14401, recv=118383
+[07:22:45] TLM: 64 flows, sent=14401, recv=118503
+[07:22:46] TLM: 64 flows, sent=14401, recv=118535
+[07:22:48] TLM: 64 flows, sent=14401, recv=119320
+[07:22:49] TLM: 64 flows, sent=14401, recv=119440
+[07:22:50] TLM: 64 flows, sent=14401, recv=119472
+[07:22:51] TLM: 64 flows, sent=14401, recv=119472
+[07:22:52] TLM: 64 flows, sent=14401, recv=119592
+[07:22:53] TLM: 64 flows, sent=14401, recv=120409
+[07:22:54] TLM: 64 flows, sent=14401, recv=120409
+[07:22:55] TLM: 64 flows, sent=14401, recv=120529
+[07:22:56] TLM: 64 flows, sent=14401, recv=120561
+[07:22:57] TLM: 64 flows, sent=14401, recv=120626
+[07:22:58] Got request 45 from git-remote-https.exe (4.114.82.140:443) pid=5988
+[07:22:58] Sent Allow for request 45 (ASK)
+[07:22:58] TLM: 64 flows, sent=14401, recv=120746
+[07:22:59] TLM: 64 flows, sent=14401, recv=120778
+[07:23:00] TLM: 64 flows, sent=14401, recv=120778
+[07:23:00] Got request 46 from Code.exe (215.143.182.52:443) pid=9384
+[07:23:00] Sent Allow for request 46 (ASK)
+[07:23:00] Got request 47 from Code.exe (215.143.182.52:443) pid=9384
+[07:23:00] Sent Allow for request 47 (ASK)
+[07:23:01] TLM: 64 flows, sent=14401, recv=120930
+[07:23:02] TLM: 64 flows, sent=14401, recv=120930
+[07:23:02] Got request 48 from Unknown (fe80::7203:7eff:fe0b:6eea:0) pid=4
+[07:23:02] Sent Allow for request 48 (ASK)
+[07:23:03] Got request 49 from Code.exe (215.143.182.52:443) pid=9384
+[07:23:03] Sent Allow for request 49 (ASK)
+[07:23:03] Got request 50 from Code.exe (215.143.182.52:443) pid=9384
+[07:23:03] Sent Allow for request 50 (ASK)
+[07:23:03] TLM: 64 flows, sent=14401, recv=120930
+[07:23:04] TLM: 64 flows, sent=14433, recv=121899
+[07:23:05] TLM: 64 flows, sent=14433, recv=121964
+[07:23:06] TLM: 64 flows, sent=14433, recv=121964
+[07:23:07] TLM: 64 flows, sent=14433, recv=122116
+[07:23:08] TLM: 64 flows, sent=14433, recv=122116
+[07:23:09] TLM: 64 flows, sent=14433, recv=122901
+[07:23:10] TLM: 64 flows, sent=14433, recv=123053
+[07:23:11] TLM: 64 flows, sent=14433, recv=123053
+[07:23:12] TLM: 64 flows, sent=14433, recv=123053
+[07:23:13] TLM: 64 flows, sent=14433, recv=123205
+[07:23:14] TLM: 64 flows, sent=14433, recv=123990
+[07:23:15] TLM: 64 flows, sent=14433, recv=124110
+[07:23:16] TLM: 64 flows, sent=14433, recv=124142
+[07:23:17] TLM: 64 flows, sent=14433, recv=124142
+[07:23:18] TLM: 64 flows, sent=14433, recv=124262
+[07:23:20] TLM: 64 flows, sent=14433, recv=124294
+[07:23:21] TLM: 64 flows, sent=14433, recv=124294
+[07:23:22] TLM: 64 flows, sent=14433, recv=124414
+[07:23:23] TLM: 64 flows, sent=14433, recv=124446
+[07:23:24] TLM: 64 flows, sent=14433, recv=124446
+[07:23:25] TLM: 64 flows, sent=14433, recv=124598
+[07:23:26] TLM: 64 flows, sent=14433, recv=124598
+[07:23:27] TLM: 64 flows, sent=14433, recv=125383
+[07:23:28] TLM: 64 flows, sent=14454, recv=125503
+[07:23:29] TLM: 64 flows, sent=14454, recv=125535
+[07:23:30] TLM: 64 flows, sent=14454, recv=125535
+[07:23:31] TLM: 64 flows, sent=14454, recv=125687
+[07:23:32] TLM: 64 flows, sent=14454, recv=126472
+[07:23:33] TLM: 64 flows, sent=14454, recv=126472
+[07:23:34] TLM: 64 flows, sent=14454, recv=126624
+[07:23:35] TLM: 64 flows, sent=14454, recv=126624
+[07:23:36] TLM: 64 flows, sent=14454, recv=127409
+[07:23:37] TLM: 64 flows, sent=14454, recv=127529
