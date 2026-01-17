@@ -14,6 +14,7 @@
 #        .\dev.ps1 -Driver      # Start driver only
 #        .\dev.ps1 -Stop        # Stop driver
 #        .\dev.ps1 -All         # Full rebuild: driver + CLI, install, and start TUI
+#        .\dev.ps1 -Recovery    # Post-reboot: rebuild CLI, recreate service, start TUI
 #
 # Typical development workflow:
 #   1. .\dev.ps1 -BuildDriver   # First time: build and install driver (admin required)
@@ -33,7 +34,8 @@ param(
     [switch]$Driver,
     [switch]$Stop,
     [switch]$Reload,      # Stop driver, copy new .sys, restart (no rebuild)
-    [switch]$All
+    [switch]$All,
+    [switch]$Recovery     # Post-reboot: rebuild CLI, recreate service, start driver, run TUI
 )
 
 $ErrorActionPreference = "Stop"
@@ -134,6 +136,70 @@ if ($Reload) {
     Ensure-ServiceExists
     sc.exe start $serviceName
     Write-Host "=== Driver Reloaded ===" -ForegroundColor Green
+    exit
+}
+
+if ($Recovery) {
+    # Post-reboot recovery: rebuild CLI, recreate driver service, start driver, run TUI
+    if (-not (Test-Admin)) {
+        Write-Host "ERROR: Recovery requires Administrator privileges!" -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host "=== Post-Reboot Recovery ===" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Step 1: Rebuild CLI
+    Write-Host "[1/4] Building CLI (Release)..." -ForegroundColor Yellow
+    cargo build --release -p sereno-cli --target x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "CLI build failed!" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "      CLI build complete." -ForegroundColor Green
+
+    # Step 2: Delete old service (if exists)
+    Write-Host "[2/4] Removing old driver service..." -ForegroundColor Yellow
+    sc.exe stop $serviceName 2>$null
+    Start-Sleep -Seconds 1
+    sc.exe delete $serviceName 2>$null
+    Start-Sleep -Seconds 1
+    Write-Host "      Old service removed." -ForegroundColor Green
+
+    # Step 3: Recreate driver service
+    Write-Host "[3/4] Creating driver service..." -ForegroundColor Yellow
+    if (-not (Test-Path $driverDst)) {
+        Write-Host "      Driver not found at $driverDst, copying..." -ForegroundColor Yellow
+        if (Test-Path $driverSrc) {
+            Copy-Item $driverSrc $driverDst -Force
+        } else {
+            Write-Host "ERROR: No driver found at $driverSrc either!" -ForegroundColor Red
+            exit 1
+        }
+    }
+    sc.exe create $serviceName type= kernel binPath= $driverDst start= demand | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed to create service!" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "      Driver service created." -ForegroundColor Green
+
+    # Step 4: Start driver
+    Write-Host "[4/4] Starting driver..." -ForegroundColor Yellow
+    sc.exe start $serviceName
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Driver start failed! Check:" -ForegroundColor Red
+        Write-Host "  - Test signing enabled: bcdedit | findstr testsigning" -ForegroundColor Yellow
+        Write-Host "  - Certificate trusted in TrustedPublisher store" -ForegroundColor Yellow
+        exit 1
+    }
+    Write-Host "      Driver started." -ForegroundColor Green
+
+    Write-Host ""
+    Write-Host "=== Recovery Complete ===" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Starting TUI..." -ForegroundColor Cyan
+    & $exe
     exit
 }
 

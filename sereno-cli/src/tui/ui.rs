@@ -1,11 +1,11 @@
 //! TUI UI Rendering
 
-use crate::tui::app::{App, DriverStatus, FlowSort, Tab};
+use crate::tui::app::{App, AuthStatus, ConnectionSort, DriverStatus, FlowSort, Tab, ViewMode};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs},
+    widgets::{Block, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs},
     Frame,
 };
 
@@ -25,6 +25,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_tabs(frame, app, chunks[1]);
     draw_content(frame, app, chunks[2]);
     draw_footer(frame, app, chunks[3]);
+
+    // Draw info popup overlay if active
+    if app.show_info_popup {
+        draw_info_popup(frame, app);
+    }
 }
 
 /// Format bytes into human-readable form (KB, MB, GB)
@@ -56,10 +61,12 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         DriverStatus::Unknown => Span::styled("? Unknown", Style::default().fg(Color::DarkGray)),
     };
 
-    let mode_span = Span::styled(
-        app.mode.label(),
-        Style::default().fg(Color::Cyan),
-    );
+    let mode_style = if app.mode == crate::tui::app::Mode::SilentAllow {
+        Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+    let mode_span = Span::styled(app.mode.label(), mode_style);
 
     // Format bandwidth stats
     let bandwidth_span = if app.driver_status == DriverStatus::Running {
@@ -130,15 +137,328 @@ fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
 /// Draw the main content area based on active tab
 fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
     match app.active_tab {
-        Tab::Monitor => draw_monitor_tab(frame, app, area),
-        Tab::Flows => draw_flows_tab(frame, app, area),
+        Tab::Connections => draw_connections_tab(frame, app, area),
         Tab::Rules => draw_rules_tab(frame, app, area),
         Tab::Logs => draw_logs_tab(frame, app, area),
         Tab::Settings => draw_settings_tab(frame, app, area),
     }
 }
 
-/// Draw the Monitor tab - live connection list
+/// Draw the unified Connections tab - merged ALE auth + TLM bandwidth
+fn draw_connections_tab(frame: &mut Frame, app: &App, area: Rect) {
+    match app.view_mode {
+        ViewMode::Detailed => draw_connections_detailed(frame, app, area),
+        ViewMode::Grouped => draw_connections_grouped(frame, app, area),
+    }
+}
+
+/// Format direction indicator
+fn direction_indicator(direction: sereno_core::types::Direction) -> &'static str {
+    match direction {
+        sereno_core::types::Direction::Outbound => "→",
+        sereno_core::types::Direction::Inbound => "←",
+        sereno_core::types::Direction::Any => "↔",
+    }
+}
+
+/// Truncate long strings (especially IPv6 addresses) for display
+fn truncate_for_display(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else if max_len > 3 {
+        format!("{}...", &s[..max_len - 3])
+    } else {
+        s[..max_len].to_string()
+    }
+}
+
+/// Draw detailed view of connections
+fn draw_connections_detailed(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::signature::SignatureStatus;
+
+    // Sort indicator for title
+    let sort_indicator = match app.unified_sort {
+        ConnectionSort::Time => "Time",
+        ConnectionSort::BytesTotal => "Bytes",
+        ConnectionSort::Process => "Proc",
+        ConnectionSort::Destination => "Dest",
+    };
+
+    // Header row
+    let header_cells = ["Time", "Auth", "Dir", "Sig", "Process", "Destination", "Port", "↑Sent", "↓Recv"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+
+    let header = Row::new(header_cells).height(1);
+
+    // Calculate visible rows
+    let visible_rows = area.height.saturating_sub(3) as usize;
+
+    // Get sorted connections
+    let sorted_connections = app.get_unified_connections_sorted();
+
+    // Clamp scroll offset and selection
+    let max_scroll = sorted_connections.len().saturating_sub(visible_rows.max(1));
+    let scroll_offset = app.unified_scroll_offset.min(max_scroll);
+
+    // Ensure selected item is visible
+    let selected = app.selected_unified.min(sorted_connections.len().saturating_sub(1));
+    let scroll_offset = if selected < scroll_offset {
+        selected
+    } else if selected >= scroll_offset + visible_rows && visible_rows > 0 {
+        selected.saturating_sub(visible_rows - 1)
+    } else {
+        scroll_offset
+    };
+
+    // Slice for display
+    let start = scroll_offset;
+    let end = (start + visible_rows).min(sorted_connections.len());
+
+    let rows: Vec<Row> = sorted_connections.iter()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+        .map(|(i, (_, conn))| {
+            let is_selected = i == app.selected_unified;
+
+            // Auth status color
+            let auth_style = if is_selected {
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                match conn.auth_status {
+                    AuthStatus::Allow => Style::default().fg(Color::Green),
+                    AuthStatus::Deny => Style::default().fg(Color::Red),
+                    AuthStatus::Pending => Style::default().fg(Color::Yellow),
+                    AuthStatus::Auto => Style::default().fg(Color::Cyan),
+                    AuthStatus::SilentAllow => Style::default().fg(Color::Magenta),
+                }
+            };
+
+            // Row background
+            let row_style = if is_selected {
+                Style::default().bg(Color::Blue).fg(Color::White)
+            } else if conn.auth_status == AuthStatus::Pending {
+                Style::default().bg(Color::Rgb(50, 50, 0))
+            } else if !conn.is_active {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default()
+            };
+
+            // Signature status
+            let (sig_label, sig_style) = match &conn.signature_status {
+                Some(SignatureStatus::Signed { .. }) => ("OK", Style::default().fg(Color::Green)),
+                Some(SignatureStatus::Unsigned) => ("!!", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Some(SignatureStatus::Invalid) => ("XX", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Some(SignatureStatus::Unknown) | None => ("?", Style::default().fg(Color::DarkGray)),
+            };
+
+            // Process display
+            let process_display = if conn.process_id == 4 {
+                "System[4]".to_string()
+            } else if conn.process_name == "Unknown" || conn.process_name.is_empty() {
+                format!("PID:{}", conn.process_id)
+            } else {
+                format!("{}[{}]", conn.process_name, conn.process_id)
+            };
+
+            // Protocol for port display
+            let protocol_str = match conn.protocol {
+                sereno_core::types::Protocol::Tcp => "TCP",
+                sereno_core::types::Protocol::Udp => "UDP",
+                sereno_core::types::Protocol::Icmp => "ICMP",
+                _ => "",
+            };
+
+            // Port display
+            let port_display = if protocol_str == "ICMP" {
+                "ICMP".to_string()
+            } else {
+                format!("{}:{}", conn.remote_port, protocol_str)
+            };
+
+            // Bandwidth display
+            let sent_style = if is_selected { Style::default().fg(Color::White) } else { Style::default().fg(Color::Green) };
+            let recv_style = if is_selected { Style::default().fg(Color::White) } else { Style::default().fg(Color::Cyan) };
+
+            // Direction indicator with color
+            let dir_str = direction_indicator(conn.direction);
+            let dir_style = match conn.direction {
+                sereno_core::types::Direction::Inbound => Style::default().fg(Color::Yellow),
+                sereno_core::types::Direction::Outbound => Style::default().fg(Color::Cyan),
+                _ => Style::default(),
+            };
+
+            // Truncate long destinations (especially IPv6) for display
+            let dest_display = truncate_for_display(&conn.destination, 25);
+
+            Row::new(vec![
+                Cell::from(conn.first_seen.clone()),
+                Cell::from(conn.auth_status.label()).style(auth_style),
+                Cell::from(dir_str).style(dir_style),
+                Cell::from(sig_label).style(sig_style),
+                Cell::from(process_display),
+                Cell::from(dest_display),
+                Cell::from(port_display),
+                Cell::from(format_bytes(conn.bytes_sent)).style(sent_style),
+                Cell::from(format_bytes(conn.bytes_received)).style(recv_style),
+            ])
+            .style(row_style)
+            .height(1)
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(8),  // Time
+            Constraint::Length(5),  // Auth
+            Constraint::Length(3),  // Dir
+            Constraint::Length(3),  // Sig
+            Constraint::Length(18), // Process
+            Constraint::Min(18),    // Destination
+            Constraint::Length(9),  // Port
+            Constraint::Length(8),  // Sent
+            Constraint::Length(8),  // Recv
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .title(format!(
+                " Connections ({}-{}/{}) [{}] ↑{} ↓{} ",
+                if sorted_connections.is_empty() { 0 } else { start + 1 },
+                end,
+                sorted_connections.len(),
+                sort_indicator,
+                format_bytes(app.total_bytes_sent),
+                format_bytes(app.total_bytes_received),
+            ))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Blue)),
+    );
+
+    frame.render_widget(table, area);
+}
+
+/// Draw grouped view of connections - aggregated by process + destination (like Little Snitch)
+fn draw_connections_grouped(frame: &mut Frame, app: &App, area: Rect) {
+    let header_cells = ["Process", "Destination", "Proto", "#", "↑Sent", "↓Recv", "Status"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+
+    let header = Row::new(header_cells).height(1);
+
+    // Calculate visible rows
+    let visible_rows = (area.height.saturating_sub(3)) as usize; // -3 for borders and header
+    let start = app.grouped_scroll_offset;
+    let end = (start + visible_rows).min(app.grouped_connections.len());
+
+    let rows: Vec<Row> = app.grouped_connections
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+        .map(|(i, group)| {
+            let is_selected = i == app.selected_grouped;
+
+            // Auth status color
+            let auth_style = if is_selected {
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                match group.auth_status {
+                    AuthStatus::Allow => Style::default().fg(Color::Green),
+                    AuthStatus::Deny => Style::default().fg(Color::Red),
+                    AuthStatus::Pending => Style::default().fg(Color::Yellow),
+                    AuthStatus::Auto => Style::default().fg(Color::Cyan),
+                    AuthStatus::SilentAllow => Style::default().fg(Color::Magenta),
+                }
+            };
+
+            let row_style = if is_selected {
+                Style::default().bg(Color::Blue).fg(Color::White)
+            } else if group.is_any_active {
+                Style::default().bg(Color::Rgb(0, 30, 0))
+            } else {
+                Style::default()
+            };
+
+            // Process display with connection count if multiple PIDs
+            let proc_display = if group.pid_count > 1 {
+                format!("{} ({})", group.process_name, group.pid_count)
+            } else {
+                group.process_name.clone()
+            };
+            let proc_display = truncate_for_display(&proc_display, 18);
+
+            // Truncate destination
+            let dest_display = truncate_for_display(&group.destination, 28);
+
+            // Protocol display: show both if TCP+UDP, otherwise just one
+            let proto_display = if group.protocols.len() > 1 {
+                "TCP+UDP".to_string()
+            } else if let Some(proto) = group.protocols.first() {
+                match proto {
+                    sereno_core::types::Protocol::Tcp => "TCP".to_string(),
+                    sereno_core::types::Protocol::Udp => "UDP".to_string(),
+                    sereno_core::types::Protocol::Icmp => "ICMP".to_string(),
+                    _ => "?".to_string(),
+                }
+            } else {
+                "?".to_string()
+            };
+
+            // Connection count
+            let count_display = format!("{}", group.connection_count);
+
+            Row::new(vec![
+                Cell::from(proc_display).style(if is_selected { Style::default() } else { Style::default().fg(Color::Magenta) }),
+                Cell::from(dest_display),
+                Cell::from(proto_display).style(Style::default().fg(Color::DarkGray)),
+                Cell::from(count_display),
+                Cell::from(format_bytes(group.total_bytes_sent)).style(if is_selected { Style::default() } else { Style::default().fg(Color::Green) }),
+                Cell::from(format_bytes(group.total_bytes_received)).style(if is_selected { Style::default() } else { Style::default().fg(Color::Cyan) }),
+                Cell::from(group.auth_status.label()).style(auth_style),
+            ])
+            .style(row_style)
+            .height(1)
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(18), // Process
+            Constraint::Min(20),    // Destination
+            Constraint::Length(7),  // Proto
+            Constraint::Length(3),  // # (count)
+            Constraint::Length(8),  // Sent
+            Constraint::Length(8),  // Recv
+            Constraint::Length(6),  // Status
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .title(format!(
+                " {} ({} groups) ↑{} ↓{} ",
+                app.grouped_connections.get(app.selected_grouped)
+                    .map(|g| g.process_name.as_str())
+                    .unwrap_or("No selection"),
+                app.grouped_connections.len(),
+                format_bytes(app.total_bytes_sent),
+                format_bytes(app.total_bytes_received),
+            ))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Magenta)),
+    );
+
+    frame.render_widget(table, area);
+}
+
+/// Draw the Monitor tab - live connection list (legacy, kept for reference)
+#[allow(dead_code)]
 fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
     use crate::signature::SignatureStatus;
 
@@ -823,27 +1143,20 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         // Show tab-specific keyboard shortcuts
         match app.active_tab {
-            Tab::Monitor => Line::from(vec![
+            Tab::Connections => Line::from(vec![
                 Span::raw(" "),
                 Span::styled("↑↓/jk", Style::default().fg(Color::Cyan)),
-                Span::raw(" Navigate  "),
+                Span::raw(" Nav  "),
+                Span::styled("G", Style::default().fg(Color::Magenta)),
+                Span::raw(" Group  "),
+                Span::styled("I", Style::default().fg(Color::Yellow)),
+                Span::raw(" Info  "),
                 Span::styled("T", Style::default().fg(Color::Green)),
                 Span::raw(" Toggle  "),
+                Span::styled("S", Style::default().fg(Color::Magenta)),
+                Span::raw(" Sort  "),
                 Span::styled("C", Style::default().fg(Color::Cyan)),
                 Span::raw(" Clear  "),
-                Span::styled("Tab", Style::default().fg(Color::Cyan)),
-                Span::raw(" Switch tabs  "),
-                Span::styled("Q", Style::default().fg(Color::Cyan)),
-                Span::raw(" Quit"),
-            ]),
-            Tab::Flows => Line::from(vec![
-                Span::raw(" "),
-                Span::styled("↑↓", Style::default().fg(Color::Cyan)),
-                Span::raw(" Navigate  "),
-                Span::styled("S", Style::default().fg(Color::Green)),
-                Span::raw(" Sort  "),
-                Span::styled("Tab", Style::default().fg(Color::Cyan)),
-                Span::raw(" Switch tabs  "),
                 Span::styled("Q", Style::default().fg(Color::Cyan)),
                 Span::raw(" Quit"),
             ]),
@@ -875,12 +1188,14 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             ]),
             Tab::Settings => Line::from(vec![
                 Span::raw(" "),
+                Span::styled("M", Style::default().fg(Color::Magenta)),
+                Span::raw(" Mode  "),
                 Span::styled("D", Style::default().fg(Color::Cyan)),
-                Span::raw(" Toggle driver  "),
+                Span::raw(" Driver  "),
                 Span::styled("R", Style::default().fg(Color::Cyan)),
-                Span::raw(" Reload rules  "),
+                Span::raw(" Reload  "),
                 Span::styled("Tab", Style::default().fg(Color::Cyan)),
-                Span::raw(" Switch tabs  "),
+                Span::raw(" Switch  "),
                 Span::styled("Q", Style::default().fg(Color::Cyan)),
                 Span::raw(" Quit"),
             ]),
@@ -894,4 +1209,172 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     );
 
     frame.render_widget(footer, area);
+}
+
+/// Draw info popup overlay for selected connection
+fn draw_info_popup(frame: &mut Frame, app: &App) {
+    use crate::signature::SignatureStatus;
+
+    // Get selected connection based on view mode
+    let conn_info = if app.view_mode == ViewMode::Grouped {
+        // For grouped view, show group info (process + destination aggregation)
+        app.grouped_connections.get(app.selected_grouped).map(|group| {
+            // Format ports list
+            let ports_str = if group.ports.len() > 5 {
+                let first_five: Vec<String> = group.ports.iter().take(5).map(|p| p.to_string()).collect();
+                format!("{} (+{})", first_five.join(", "), group.ports.len() - 5)
+            } else {
+                group.ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")
+            };
+
+            // Format protocols
+            let protocols_str = group.protocols.iter()
+                .map(|p| match p {
+                    sereno_core::types::Protocol::Tcp => "TCP",
+                    sereno_core::types::Protocol::Udp => "UDP",
+                    sereno_core::types::Protocol::Icmp => "ICMP",
+                    _ => "?",
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            vec![
+                ("Process", group.process_name.clone()),
+                ("PIDs", format!("{} unique", group.pid_count)),
+                ("", "".to_string()), // Separator
+                ("Destination", group.destination.clone()),
+                ("Ports", ports_str),
+                ("Protocols", protocols_str),
+                ("", "".to_string()), // Separator
+                ("Connections", format!("{}", group.connection_count)),
+                ("Total Sent", format_bytes(group.total_bytes_sent)),
+                ("Total Received", format_bytes(group.total_bytes_received)),
+                ("Status", group.auth_status.label().to_string()),
+                ("Active", if group.is_any_active { "Yes" } else { "No" }.to_string()),
+                ("First Seen", group.first_seen.clone()),
+            ]
+        })
+    } else {
+        // For detailed view, show connection info
+        app.selected_unified_connection().map(|conn| {
+            let sig_info = match &conn.signature_status {
+                Some(SignatureStatus::Signed { signer }) => format!("✓ Signed: {}", signer),
+                Some(SignatureStatus::Unsigned) => "⚠ UNSIGNED".to_string(),
+                Some(SignatureStatus::Invalid) => "✗ INVALID".to_string(),
+                Some(SignatureStatus::Unknown) | None => "? Unknown".to_string(),
+            };
+
+            let direction = match conn.direction {
+                sereno_core::types::Direction::Outbound => "Outbound →",
+                sereno_core::types::Direction::Inbound => "Inbound ←",
+                sereno_core::types::Direction::Any => "Any ↔",
+            };
+
+            let protocol = match conn.protocol {
+                sereno_core::types::Protocol::Tcp => "TCP",
+                sereno_core::types::Protocol::Udp => "UDP",
+                sereno_core::types::Protocol::Icmp => "ICMP",
+                _ => "Other",
+            };
+
+            vec![
+                ("Process", format!("{} [PID: {}]", conn.process_name, conn.process_id)),
+                ("Path", if conn.process_path.is_empty() { "(unknown)".to_string() } else { conn.process_path.clone() }),
+                ("Signature", sig_info),
+                ("", "".to_string()), // Separator
+                ("Destination", conn.destination.clone()),
+                ("Remote IP", conn.remote_address.to_string()),
+                ("Port", format!("{} ({})", conn.remote_port, protocol)),
+                ("Local Port", format!("{}", conn.local_port)),
+                ("Direction", direction.to_string()),
+                ("", "".to_string()), // Separator
+                ("Status", conn.auth_status.label().to_string()),
+                ("Sent", format_bytes(conn.bytes_sent)),
+                ("Received", format_bytes(conn.bytes_received)),
+                ("First Seen", conn.first_seen.clone()),
+                ("Active", if conn.is_active { "Yes" } else { "No" }.to_string()),
+            ]
+        })
+    };
+
+    let Some(info) = conn_info else {
+        return;
+    };
+
+    // Calculate popup size and position (centered)
+    let area = frame.area();
+    let popup_width = 60.min(area.width.saturating_sub(4));
+    let popup_height = (info.len() as u16 + 4).min(area.height.saturating_sub(4));
+
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Build content lines
+    let mut lines: Vec<Line> = Vec::new();
+
+    for (label, value) in info {
+        if label.is_empty() {
+            // Separator line
+            lines.push(Line::from(Span::styled(
+                "─".repeat((popup_width - 2) as usize),
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            let label_style = Style::default().fg(Color::Yellow);
+            let value_style = if label == "Signature" {
+                if value.starts_with('✓') {
+                    Style::default().fg(Color::Green)
+                } else if value.starts_with('⚠') || value.starts_with('✗') {
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }
+            } else if label == "Status" {
+                match value.as_str() {
+                    "ALLOW" => Style::default().fg(Color::Green),
+                    "DENY" => Style::default().fg(Color::Red),
+                    "ASK" => Style::default().fg(Color::Yellow),
+                    "AUTO" => Style::default().fg(Color::Cyan),
+                    "SA" => Style::default().fg(Color::Magenta),
+                    _ => Style::default(),
+                }
+            } else if label == "Active" {
+                if value == "Yes" {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("{:>14}: ", label), label_style),
+                Span::styled(truncate_for_display(&value, (popup_width - 18) as usize), value_style),
+            ]));
+        }
+    }
+
+    // Add footer hint
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press any key to close",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+    )));
+
+    let popup = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(" Connection Info ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .style(Style::default().bg(Color::Black)),
+        );
+
+    frame.render_widget(popup, popup_area);
 }

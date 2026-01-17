@@ -555,6 +555,7 @@ async fn driver_poll_loop(
                         port: req.remote_port,
                         local_port: req.local_port,
                         protocol: format!("{:?}", req.protocol),
+                        direction: req.direction,
                         rule_name: match &verdict {
                             EvalResult::Allow { rule_id } | EvalResult::Deny { rule_id } => {
                                 if rule_id.is_empty() {
@@ -966,7 +967,7 @@ async fn run_event_loop(
             // Check for driver events (connections and SNI updates)
             Some(driver_event) = conn_rx.recv() => {
                 match driver_event {
-                    DriverEvent::Connection { event, .. } => {
+                    DriverEvent::Connection { event, verdict, .. } => {
                         // Cache process name for TLM flow lookup (by PID)
                         app.cache_process_name(event.process_id, &event.process_name);
                         // Cache by local port for TLM correlation (local port is unique per connection)
@@ -976,32 +977,85 @@ async fn run_event_loop(
                             &event.remote_address,
                             &event.destination,
                         );
-                        // ASK connections are auto-allowed now (no blocking)
+
+                        // Convert verdict to AuthStatus
+                        // In Silent Allow mode, ASK connections are shown as SilentAllow (SA)
+                        use app::{AuthStatus, Mode};
+                        let auth_status = match &verdict {
+                            sereno_core::types::EvalResult::Allow { .. } => AuthStatus::Allow,
+                            sereno_core::types::EvalResult::Deny { .. } => AuthStatus::Deny,
+                            sereno_core::types::EvalResult::Ask => {
+                                if app.mode == Mode::SilentAllow {
+                                    AuthStatus::SilentAllow
+                                } else {
+                                    AuthStatus::Pending
+                                }
+                            }
+                        };
+
+                        // Parse remote address
+                        let remote_ip: IpAddr = event.remote_address.parse()
+                            .unwrap_or_else(|_| "0.0.0.0".parse().unwrap());
+
+                        // Parse protocol
+                        let protocol = if event.protocol.to_lowercase().contains("udp") {
+                            sereno_core::types::Protocol::Udp
+                        } else {
+                            sereno_core::types::Protocol::Tcp
+                        };
+
+                        // Add to unified connections
+                        app.add_unified_from_ale(
+                            event.local_port,
+                            remote_ip,
+                            event.port,
+                            protocol,
+                            event.direction,
+                            event.process_name.clone(),
+                            event.process_id,
+                            event.process_path.clone(),
+                            auth_status,
+                            event.destination.clone(),
+                            event.signature_status.clone(),
+                            event.request_id,
+                        );
+
+                        // Also keep legacy connection list for backwards compatibility
                         app.add_connection(event);
                     }
                     DriverEvent::SniUpdate { remote_address, port, domain } => {
-                        // Update existing connection(s) with SNI domain
-                        // Match by remote IP and port
-                        // Collect port cache updates first to avoid borrow checker issues
+                        // Parse remote address
+                        let remote_ip: IpAddr = remote_address.parse()
+                            .unwrap_or_else(|_| "0.0.0.0".parse().unwrap());
+
+                        // Update unified connections with SNI domain
+                        let sni_dest = format!("{} (SNI)", domain);
+                        for conn in app.unified_connections.values_mut() {
+                            if conn.remote_address == remote_ip && conn.remote_port == port {
+                                // Only update if destination is still showing IP
+                                if conn.destination == remote_address || !conn.destination.contains("(SNI)") {
+                                    conn.destination = sni_dest.clone();
+                                }
+                            }
+                        }
+
+                        // Also update legacy connections and port cache
                         let mut port_updates: Vec<(u16, String, String, String)> = Vec::new();
                         for conn in app.connections.iter_mut() {
                             if conn.remote_address == remote_address && conn.port == port {
-                                // Only update if destination is still showing IP (no domain yet)
                                 if conn.destination == remote_address {
-                                    conn.destination = format!("{} (SNI)", domain);
+                                    conn.destination = sni_dest.clone();
                                 }
-                                // Collect update for port process cache
                                 port_updates.push((
                                     conn.local_port,
                                     conn.process_name.clone(),
                                     remote_address.clone(),
-                                    format!("{} (SNI)", domain),
+                                    sni_dest.clone(),
                                 ));
                             }
                         }
-                        // Apply port cache updates after the mutable borrow ends
-                        for (local_port, proc_name, remote_ip, dest) in port_updates {
-                            app.cache_port_process(local_port, &proc_name, &remote_ip, &dest);
+                        for (local_port, proc_name, remote_ip_str, dest) in port_updates {
+                            app.cache_port_process(local_port, &proc_name, &remote_ip_str, &dest);
                         }
                     }
                 }
@@ -1027,7 +1081,10 @@ async fn run_event_loop(
             if let Some(ref handle) = driver_handle {
                 match handle.get_bandwidth_stats() {
                     Ok(entries) => {
-                        // Update app with flow data (handles aggregation, history, etc.)
+                        // Update unified connections with TLM bandwidth data
+                        app.update_unified_from_tlm(&entries);
+
+                        // Also update legacy flows for backwards compatibility
                         app.update_flows(entries);
 
                         // Debug: log bandwidth poll results
@@ -1037,8 +1094,9 @@ async fn run_event_loop(
                             .open("sereno-debug.log")
                             .and_then(|mut f| {
                                 use std::io::Write;
-                                writeln!(f, "[{}] TLM: {} flows, sent={}, recv={}",
+                                writeln!(f, "[{}] TLM: {} unified, {} active, sent={}, recv={}",
                                     chrono::Local::now().format("%H:%M:%S"),
+                                    app.unified_connections.len(),
                                     app.active_flows, app.total_bytes_sent, app.total_bytes_received)
                             });
                     }
@@ -1160,6 +1218,7 @@ fn add_demo_connections(app: &mut App) {
             port: 443,
             local_port: 50001,
             protocol: "Tcp".to_string(),
+            direction: sereno_core::types::Direction::Outbound,
             rule_name: None,
             is_pending: false,
             request_id: None,
@@ -1176,6 +1235,7 @@ fn add_demo_connections(app: &mut App) {
             port: 443,
             local_port: 50002,
             protocol: "Tcp".to_string(),
+            direction: sereno_core::types::Direction::Outbound,
             rule_name: None,
             is_pending: true,
             request_id: Some(999), // Demo request ID
@@ -1192,6 +1252,7 @@ fn add_demo_connections(app: &mut App) {
             port: 443,
             local_port: 50003,
             protocol: "Tcp".to_string(),
+            direction: sereno_core::types::Direction::Outbound,
             rule_name: Some("Block Telemetry".to_string()),
             is_pending: false,
             request_id: None,
@@ -1208,6 +1269,7 @@ fn add_demo_connections(app: &mut App) {
             port: 50073,
             local_port: 50004,
             protocol: "Tcp".to_string(),
+            direction: sereno_core::types::Direction::Outbound,
             rule_name: Some("Allow Local".to_string()),
             is_pending: false,
             request_id: None,
@@ -1224,6 +1286,7 @@ fn add_demo_connections(app: &mut App) {
             port: 443,
             local_port: 50005,
             protocol: "Tcp".to_string(),
+            direction: sereno_core::types::Direction::Outbound,
             rule_name: Some("Allow WU".to_string()),
             is_pending: false,
             request_id: None,

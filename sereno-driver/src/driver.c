@@ -1291,6 +1291,430 @@ SerenoRegisterCallouts(
 
     SERENO_DBG("Flow Established callouts registered successfully\n");
 
+    // ========================================
+    // Datagram Data Callouts (UDP blocking)
+    // FWPM_LAYER_DATAGRAM_DATA_V4/V6
+    // ========================================
+    {
+        // Register Datagram V4 callout
+        sCallout.calloutKey = SERENO_CALLOUT_DATAGRAM_V4_GUID;
+        sCallout.classifyFn = SerenoClassifyDatagram;
+        sCallout.notifyFn = SerenoNotify;
+        sCallout.flowDeleteFn = SerenoFlowDelete;
+        sCallout.flags = 0;
+
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->DatagramCalloutIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (Datagram V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add Datagram V4 callout to filter engine
+        mCallout.calloutKey = SERENO_CALLOUT_DATAGRAM_V4_GUID;
+        mCallout.displayData.name = L"Sereno Datagram V4 Callout";
+        mCallout.displayData.description = L"Filters UDP datagrams (QUIC, games, VoIP)";
+        mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+        mCallout.applicableLayer = FWPM_LAYER_DATAGRAM_DATA_V4;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (Datagram V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register Datagram V6 callout
+        sCallout.calloutKey = SERENO_CALLOUT_DATAGRAM_V6_GUID;
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->DatagramCalloutIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (Datagram V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_DATAGRAM_V6_GUID;
+        mCallout.displayData.name = L"Sereno Datagram V6 Callout";
+        mCallout.applicableLayer = FWPM_LAYER_DATAGRAM_DATA_V6;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (Datagram V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add Datagram filters - terminating so we can block
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_DATAGRAM_DATA_V4;
+        filter.displayData.name = L"Sereno Datagram V4 Filter";
+        filter.displayData.description = L"Filters UDP traffic";
+        filter.action.type = FWP_ACTION_CALLOUT_TERMINATING;  // Can block
+        filter.action.calloutKey = SERENO_CALLOUT_DATAGRAM_V4_GUID;
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0xE;  // High priority
+        filter.numFilterConditions = 0;  // All UDP traffic
+        filter.filterCondition = NULL;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->DatagramFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Datagram V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Datagram V6 filter
+        filter.layerKey = FWPM_LAYER_DATAGRAM_DATA_V6;
+        filter.displayData.name = L"Sereno Datagram V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_DATAGRAM_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->DatagramFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (Datagram V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
+    SERENO_DBG("Datagram callouts registered successfully\n");
+
+    // ========================================
+    // ICMP Error Callouts (ICMP filtering)
+    // FWPM_LAYER_INBOUND/OUTBOUND_ICMP_ERROR_V4/V6
+    // ========================================
+    {
+        // Register ICMP Inbound V4 callout
+        sCallout.calloutKey = SERENO_CALLOUT_ICMP_IN_V4_GUID;
+        sCallout.classifyFn = SerenoClassifyIcmpInbound;
+        sCallout.notifyFn = SerenoNotify;
+        sCallout.flowDeleteFn = SerenoFlowDelete;
+        sCallout.flags = 0;
+
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IcmpInCalloutIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (ICMP In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_ICMP_IN_V4_GUID;
+        mCallout.displayData.name = L"Sereno ICMP Inbound V4 Callout";
+        mCallout.displayData.description = L"Filters inbound ICMP error packets";
+        mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+        mCallout.applicableLayer = FWPM_LAYER_INBOUND_ICMP_ERROR_V4;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (ICMP In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register ICMP Inbound V6 callout
+        sCallout.calloutKey = SERENO_CALLOUT_ICMP_IN_V6_GUID;
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IcmpInCalloutIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (ICMP In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_ICMP_IN_V6_GUID;
+        mCallout.displayData.name = L"Sereno ICMP Inbound V6 Callout";
+        mCallout.applicableLayer = FWPM_LAYER_INBOUND_ICMP_ERROR_V6;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (ICMP In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register ICMP Outbound V4 callout
+        sCallout.calloutKey = SERENO_CALLOUT_ICMP_OUT_V4_GUID;
+        sCallout.classifyFn = SerenoClassifyIcmpOutbound;
+
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IcmpOutCalloutIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (ICMP Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_ICMP_OUT_V4_GUID;
+        mCallout.displayData.name = L"Sereno ICMP Outbound V4 Callout";
+        mCallout.displayData.description = L"Filters outbound ICMP error packets (ping)";
+        mCallout.applicableLayer = FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (ICMP Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register ICMP Outbound V6 callout
+        sCallout.calloutKey = SERENO_CALLOUT_ICMP_OUT_V6_GUID;
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IcmpOutCalloutIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (ICMP Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_ICMP_OUT_V6_GUID;
+        mCallout.displayData.name = L"Sereno ICMP Outbound V6 Callout";
+        mCallout.applicableLayer = FWPM_LAYER_OUTBOUND_ICMP_ERROR_V6;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (ICMP Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add ICMP filters - terminating so we can block
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_INBOUND_ICMP_ERROR_V4;
+        filter.displayData.name = L"Sereno ICMP Inbound V4 Filter";
+        filter.displayData.description = L"Filters inbound ICMP";
+        filter.action.type = FWP_ACTION_CALLOUT_TERMINATING;
+        filter.action.calloutKey = SERENO_CALLOUT_ICMP_IN_V4_GUID;
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0xC;
+        filter.numFilterConditions = 0;
+        filter.filterCondition = NULL;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IcmpInFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (ICMP In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // ICMP Inbound V6 filter
+        filter.layerKey = FWPM_LAYER_INBOUND_ICMP_ERROR_V6;
+        filter.displayData.name = L"Sereno ICMP Inbound V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_ICMP_IN_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IcmpInFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (ICMP In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // ICMP Outbound V4 filter
+        filter.layerKey = FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4;
+        filter.displayData.name = L"Sereno ICMP Outbound V4 Filter";
+        filter.displayData.description = L"Filters outbound ICMP";
+        filter.action.calloutKey = SERENO_CALLOUT_ICMP_OUT_V4_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IcmpOutFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (ICMP Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // ICMP Outbound V6 filter
+        filter.layerKey = FWPM_LAYER_OUTBOUND_ICMP_ERROR_V6;
+        filter.displayData.name = L"Sereno ICMP Outbound V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_ICMP_OUT_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IcmpOutFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (ICMP Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
+    SERENO_DBG("ICMP callouts registered successfully\n");
+
+    // ========================================
+    // IP Packet Callouts (raw/other protocols)
+    // FWPM_LAYER_INBOUND/OUTBOUND_IPPACKET_V4/V6
+    // Excludes TCP/UDP/ICMP via filter conditions
+    // ========================================
+    {
+        FWPM_FILTER_CONDITION0 ipConditions[3];
+
+        // Register IP Packet Inbound V4 callout
+        sCallout.calloutKey = SERENO_CALLOUT_IPPACKET_IN_V4_GUID;
+        sCallout.classifyFn = SerenoClassifyIpPacketInbound;
+        sCallout.notifyFn = SerenoNotify;
+        sCallout.flowDeleteFn = SerenoFlowDelete;
+        sCallout.flags = 0;
+
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IpPacketInCalloutIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (IP Pkt In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_IPPACKET_IN_V4_GUID;
+        mCallout.displayData.name = L"Sereno IP Packet Inbound V4 Callout";
+        mCallout.displayData.description = L"Filters raw IP protocols (GRE, IPSec, etc.)";
+        mCallout.providerKey = (GUID*)&SERENO_PROVIDER_GUID;
+        mCallout.applicableLayer = FWPM_LAYER_INBOUND_IPPACKET_V4;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (IP Pkt In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register IP Packet Inbound V6 callout
+        sCallout.calloutKey = SERENO_CALLOUT_IPPACKET_IN_V6_GUID;
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IpPacketInCalloutIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (IP Pkt In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_IPPACKET_IN_V6_GUID;
+        mCallout.displayData.name = L"Sereno IP Packet Inbound V6 Callout";
+        mCallout.applicableLayer = FWPM_LAYER_INBOUND_IPPACKET_V6;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (IP Pkt In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register IP Packet Outbound V4 callout
+        sCallout.calloutKey = SERENO_CALLOUT_IPPACKET_OUT_V4_GUID;
+        sCallout.classifyFn = SerenoClassifyIpPacketOutbound;
+
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IpPacketOutCalloutIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (IP Pkt Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_IPPACKET_OUT_V4_GUID;
+        mCallout.displayData.name = L"Sereno IP Packet Outbound V4 Callout";
+        mCallout.displayData.description = L"Filters raw outbound IP protocols";
+        mCallout.applicableLayer = FWPM_LAYER_OUTBOUND_IPPACKET_V4;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (IP Pkt Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Register IP Packet Outbound V6 callout
+        sCallout.calloutKey = SERENO_CALLOUT_IPPACKET_OUT_V6_GUID;
+        status = FwpsCalloutRegister3(WdfDeviceWdmGetDeviceObject(DeviceContext->Device),
+                                       &sCallout, &DeviceContext->IpPacketOutCalloutIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpsCalloutRegister3 (IP Pkt Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        mCallout.calloutKey = SERENO_CALLOUT_IPPACKET_OUT_V6_GUID;
+        mCallout.displayData.name = L"Sereno IP Packet Outbound V6 Callout";
+        mCallout.applicableLayer = FWPM_LAYER_OUTBOUND_IPPACKET_V6;
+
+        status = FwpmCalloutAdd0(DeviceContext->EngineHandle, &mCallout, NULL, NULL);
+        if (!NT_SUCCESS(status) && status != STATUS_FWP_ALREADY_EXISTS) {
+            SERENO_DBG("FwpmCalloutAdd0 (IP Pkt Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // Add IP Packet filters with conditions to exclude TCP/UDP/ICMP
+        // Use NOT_EQUAL conditions for protocols handled elsewhere
+
+        // Condition: Protocol != TCP (6)
+        ipConditions[0].fieldKey = FWPM_CONDITION_IP_PROTOCOL;
+        ipConditions[0].matchType = FWP_MATCH_NOT_EQUAL;
+        ipConditions[0].conditionValue.type = FWP_UINT8;
+        ipConditions[0].conditionValue.uint8 = IPPROTO_TCP;
+
+        // NOTE: WFP filter conditions are ANDed, so we can't easily exclude
+        // multiple protocols with NOT_EQUAL. Instead, we'll process all
+        // protocols but skip TCP/UDP/ICMP in the classify function itself.
+        // For now, register with no conditions and filter in classify.
+
+        filter.filterKey = GUID_NULL;
+        filter.layerKey = FWPM_LAYER_INBOUND_IPPACKET_V4;
+        filter.displayData.name = L"Sereno IP Packet Inbound V4 Filter";
+        filter.displayData.description = L"Filters raw IP protocols";
+        filter.action.type = FWP_ACTION_CALLOUT_TERMINATING;
+        filter.action.calloutKey = SERENO_CALLOUT_IPPACKET_IN_V4_GUID;
+        filter.subLayerKey = SERENO_SUBLAYER_GUID;
+        filter.weight.type = FWP_UINT8;
+        filter.weight.uint8 = 0x3;  // Lower priority than transport layers
+        filter.numFilterConditions = 0;  // No conditions - filter in classify
+        filter.filterCondition = NULL;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IpPacketInFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (IP Pkt In V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // IP Packet Inbound V6 filter
+        filter.layerKey = FWPM_LAYER_INBOUND_IPPACKET_V6;
+        filter.displayData.name = L"Sereno IP Packet Inbound V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_IPPACKET_IN_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IpPacketInFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (IP Pkt In V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // IP Packet Outbound V4 filter
+        filter.layerKey = FWPM_LAYER_OUTBOUND_IPPACKET_V4;
+        filter.displayData.name = L"Sereno IP Packet Outbound V4 Filter";
+        filter.displayData.description = L"Filters raw outbound IP protocols";
+        filter.action.calloutKey = SERENO_CALLOUT_IPPACKET_OUT_V4_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IpPacketOutFilterIdV4);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (IP Pkt Out V4) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+
+        // IP Packet Outbound V6 filter
+        filter.layerKey = FWPM_LAYER_OUTBOUND_IPPACKET_V6;
+        filter.displayData.name = L"Sereno IP Packet Outbound V6 Filter";
+        filter.action.calloutKey = SERENO_CALLOUT_IPPACKET_OUT_V6_GUID;
+
+        status = FwpmFilterAdd0(DeviceContext->EngineHandle, &filter, NULL, &DeviceContext->IpPacketOutFilterIdV6);
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("FwpmFilterAdd0 (IP Pkt Out V6) failed: 0x%08X\n", status);
+            FwpmTransactionAbort0(DeviceContext->EngineHandle);
+            goto cleanup;
+        }
+    }
+
+    SERENO_DBG("IP Packet callouts registered successfully\n");
+
     // Commit transaction
     status = FwpmTransactionCommit0(DeviceContext->EngineHandle);
     if (!NT_SUCCESS(status)) {
@@ -1358,6 +1782,58 @@ SerenoUnregisterCallouts(
             FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->TransportInFilterIdV6);
         }
 
+        // Remove Recv Accept filters
+        if (DeviceContext->RecvAcceptFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->RecvAcceptFilterIdV4);
+        }
+        if (DeviceContext->RecvAcceptFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->RecvAcceptFilterIdV6);
+        }
+
+        // Remove Flow Established filters
+        if (DeviceContext->FlowEstFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->FlowEstFilterIdV4);
+        }
+        if (DeviceContext->FlowEstFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->FlowEstFilterIdV6);
+        }
+
+        // Remove Datagram (UDP) filters
+        if (DeviceContext->DatagramFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->DatagramFilterIdV4);
+        }
+        if (DeviceContext->DatagramFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->DatagramFilterIdV6);
+        }
+
+        // Remove ICMP filters
+        if (DeviceContext->IcmpInFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IcmpInFilterIdV4);
+        }
+        if (DeviceContext->IcmpInFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IcmpInFilterIdV6);
+        }
+        if (DeviceContext->IcmpOutFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IcmpOutFilterIdV4);
+        }
+        if (DeviceContext->IcmpOutFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IcmpOutFilterIdV6);
+        }
+
+        // Remove IP Packet filters
+        if (DeviceContext->IpPacketInFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IpPacketInFilterIdV4);
+        }
+        if (DeviceContext->IpPacketInFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IpPacketInFilterIdV6);
+        }
+        if (DeviceContext->IpPacketOutFilterIdV4) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IpPacketOutFilterIdV4);
+        }
+        if (DeviceContext->IpPacketOutFilterIdV6) {
+            FwpmFilterDeleteById0(DeviceContext->EngineHandle, DeviceContext->IpPacketOutFilterIdV6);
+        }
+
         FwpmEngineClose0(DeviceContext->EngineHandle);
         DeviceContext->EngineHandle = NULL;
     }
@@ -1408,6 +1884,72 @@ SerenoUnregisterCallouts(
     if (DeviceContext->TransportInCalloutIdV6) {
         FwpsCalloutUnregisterById0(DeviceContext->TransportInCalloutIdV6);
         DeviceContext->TransportInCalloutIdV6 = 0;
+    }
+
+    // Unregister Recv Accept callouts
+    if (DeviceContext->RecvAcceptCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->RecvAcceptCalloutIdV4);
+        DeviceContext->RecvAcceptCalloutIdV4 = 0;
+    }
+    if (DeviceContext->RecvAcceptCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->RecvAcceptCalloutIdV6);
+        DeviceContext->RecvAcceptCalloutIdV6 = 0;
+    }
+
+    // Unregister Flow Established callouts
+    if (DeviceContext->FlowEstCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->FlowEstCalloutIdV4);
+        DeviceContext->FlowEstCalloutIdV4 = 0;
+    }
+    if (DeviceContext->FlowEstCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->FlowEstCalloutIdV6);
+        DeviceContext->FlowEstCalloutIdV6 = 0;
+    }
+
+    // Unregister Datagram (UDP) callouts
+    if (DeviceContext->DatagramCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->DatagramCalloutIdV4);
+        DeviceContext->DatagramCalloutIdV4 = 0;
+    }
+    if (DeviceContext->DatagramCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->DatagramCalloutIdV6);
+        DeviceContext->DatagramCalloutIdV6 = 0;
+    }
+
+    // Unregister ICMP callouts
+    if (DeviceContext->IcmpInCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->IcmpInCalloutIdV4);
+        DeviceContext->IcmpInCalloutIdV4 = 0;
+    }
+    if (DeviceContext->IcmpInCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->IcmpInCalloutIdV6);
+        DeviceContext->IcmpInCalloutIdV6 = 0;
+    }
+    if (DeviceContext->IcmpOutCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->IcmpOutCalloutIdV4);
+        DeviceContext->IcmpOutCalloutIdV4 = 0;
+    }
+    if (DeviceContext->IcmpOutCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->IcmpOutCalloutIdV6);
+        DeviceContext->IcmpOutCalloutIdV6 = 0;
+    }
+
+    // Unregister IP Packet callouts
+    if (DeviceContext->IpPacketInCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->IpPacketInCalloutIdV4);
+        DeviceContext->IpPacketInCalloutIdV4 = 0;
+    }
+    if (DeviceContext->IpPacketInCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->IpPacketInCalloutIdV6);
+        DeviceContext->IpPacketInCalloutIdV6 = 0;
+    }
+    if (DeviceContext->IpPacketOutCalloutIdV4) {
+        FwpsCalloutUnregisterById0(DeviceContext->IpPacketOutCalloutIdV4);
+        DeviceContext->IpPacketOutCalloutIdV4 = 0;
+    }
+    if (DeviceContext->IpPacketOutCalloutIdV6) {
+        FwpsCalloutUnregisterById0(DeviceContext->IpPacketOutCalloutIdV6);
+        DeviceContext->IpPacketOutCalloutIdV6 = 0;
     }
 
     // Destroy injection handle (for TCP RST injection)
@@ -4213,20 +4755,721 @@ SerenoClassifyRecvAccept(
         }
     }
 
-    // 4. For now, permit all other inbound connections
-    // This makes the firewall "outbound-first" - focusing on what processes
-    // are trying to connect TO, rather than blocking inbound.
-    // Full inbound protection would require pending/asking user.
-    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+    // 4. Interactive inbound filtering - pend and ask user
+    // Similar to outbound, we use the async pending model
 
-    // Log inbound connection for monitoring
-    SERENO_DBG("INBOUND: %s:%u <- %u.%u.%u.%u:%u PID=%u\n",
-        isIPv6 ? "IPv6" : "IPv4",
-        localPort,
-        (UINT8)(remoteAddrV4 >> 24),
-        (UINT8)(remoteAddrV4 >> 16),
-        (UINT8)(remoteAddrV4 >> 8),
-        (UINT8)remoteAddrV4,
-        remotePort,
-        (UINT32)(ULONG_PTR)processId);
+    // Update stats
+    InterlockedIncrement64((LONG64*)&deviceContext->Stats.TotalConnections);
+
+    // Check if we're at capacity
+    if (deviceContext->PendingCount >= MAX_PENDING_REQUESTS) {
+        InterlockedIncrement64((LONG64*)&deviceContext->Stats.DroppedRequests);
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Check for completion handle - no handle means re-authorization
+    if (!(InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_COMPLETION_HANDLE)) {
+        // Re-auth with no cached verdict - permit as safe fallback
+        SERENO_DBG("INBOUND RE-AUTH FALLBACK permit (no cache) pid=%u port=%u",
+                 (UINT32)(ULONG_PTR)processId, localPort);
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Allocate pending request for inbound connection
+    {
+        PPENDING_REQUEST pendingRequest;
+        NTSTATUS status;
+        KIRQL oldIrql;
+        WCHAR processPath[260];
+        ULONG processPathLength = 0;
+
+        pendingRequest = SerenoAllocatePendingRequest(deviceContext);
+        if (!pendingRequest) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+
+        // Fill in connection info - note Direction = INBOUND
+        pendingRequest->ConnectionInfo.RequestId = pendingRequest->RequestId;
+        pendingRequest->ConnectionInfo.Timestamp = KeQueryInterruptTime();
+        pendingRequest->ConnectionInfo.ProcessId = (UINT32)(ULONG_PTR)processId;
+        pendingRequest->ConnectionInfo.Protocol = protocol;
+        pendingRequest->ConnectionInfo.Direction = SERENO_DIRECTION_INBOUND;  // KEY: Inbound direction
+        pendingRequest->ConnectionInfo.LocalPort = localPort;
+        pendingRequest->ConnectionInfo.RemotePort = remotePort;
+
+        if (isIPv6) {
+            pendingRequest->ConnectionInfo.IpVersion = 6;
+            RtlCopyMemory(pendingRequest->ConnectionInfo.LocalAddressV6, localAddrV6, 16);
+            RtlCopyMemory(pendingRequest->ConnectionInfo.RemoteAddressV6, remoteAddrV6, 16);
+        } else {
+            pendingRequest->ConnectionInfo.IpVersion = 4;
+            pendingRequest->ConnectionInfo.LocalAddressV4 = localAddrV4;
+            pendingRequest->ConnectionInfo.RemoteAddressV4 = remoteAddrV4;
+        }
+        pendingRequest->IsIPv6 = isIPv6;
+
+        // Get process path (the listening process)
+        if (processId) {
+            status = SerenoGetProcessPath(processId, processPath, sizeof(processPath) / sizeof(WCHAR), &processPathLength);
+            if (NT_SUCCESS(status)) {
+                RtlCopyMemory(pendingRequest->ConnectionInfo.ApplicationPath, processPath,
+                             min(processPathLength * sizeof(WCHAR), sizeof(pendingRequest->ConnectionInfo.ApplicationPath)));
+                pendingRequest->ConnectionInfo.ApplicationPathLength = processPathLength;
+            }
+        }
+
+        // Check if we have the right to modify the action
+        if (!(ClassifyOut->rights & FWPS_RIGHT_ACTION_WRITE)) {
+            SERENO_DBG("INBOUND: Cannot pend - no FWPS_RIGHT_ACTION_WRITE\n");
+            SerenoFreePendingRequest(pendingRequest);
+            return;
+        }
+
+        // Pend the operation
+        status = FwpsPendOperation0(
+            InMetaValues->completionHandle,
+            &pendingRequest->CompletionContext
+        );
+
+        if (!NT_SUCCESS(status)) {
+            SERENO_DBG("INBOUND: FwpsPendOperation0 failed: 0x%08X\n", status);
+            SerenoFreePendingRequest(pendingRequest);
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+
+        pendingRequest->Completed = FALSE;
+
+        SERENO_DBG("INBOUND PEND pid=%u local_port=%u <- remote=%u.%u.%u.%u:%u reqId=%llu",
+                  pendingRequest->ConnectionInfo.ProcessId,
+                  localPort,
+                  (UINT8)(remoteAddrV4 >> 24),
+                  (UINT8)(remoteAddrV4 >> 16),
+                  (UINT8)(remoteAddrV4 >> 8),
+                  (UINT8)remoteAddrV4,
+                  remotePort,
+                  pendingRequest->RequestId);
+
+        // Add to pending list
+        KeAcquireSpinLock(&deviceContext->PendingLock, &oldIrql);
+        InsertTailList(&deviceContext->PendingList, &pendingRequest->ListEntry);
+        deviceContext->PendingCount++;
+        KeReleaseSpinLock(&deviceContext->PendingLock, oldIrql);
+
+        // Set ABSORB flag
+        ClassifyOut->actionType = FWP_ACTION_BLOCK;
+        ClassifyOut->flags |= FWPS_CLASSIFY_OUT_FLAG_ABSORB;
+        ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+    }
+}
+
+// ============================================================================
+// PHASE 1: UDP DATAGRAM BLOCKING
+// ============================================================================
+
+/*
+ * SerenoClassifyDatagram - Classify UDP datagrams for blocking
+ *
+ * FWPM_LAYER_DATAGRAM_DATA_V4/V6 layer allows us to block UDP packets.
+ * This covers QUIC, HTTP/3, games, VoIP, telemetry, and other UDP traffic.
+ *
+ * The datagram layer fires for both inbound and outbound UDP packets.
+ * Direction is indicated by the DIRECTION field.
+ *
+ * Key insight: This layer does NOT support FwpsPendOperation0 for async
+ * pending. We must make an immediate decision based on:
+ * 1. Verdict cache (from prior TCP/ALE decisions for same destination)
+ * 2. Blocked domain list (if domain is known from DNS cache)
+ * 3. Default policy (permit if unknown)
+ */
+VOID NTAPI
+SerenoClassifyDatagram(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    BOOLEAN isIPv6;
+    UINT32 localAddrV4 = 0, remoteAddrV4 = 0;
+    UINT8 localAddrV6[16] = {0}, remoteAddrV6[16] = {0};
+    UINT16 localPort = 0, remotePort = 0;
+    UINT8 direction = 0;
+    UINT32 processId = 0;
+    SERENO_VERDICT cachedVerdict;
+    WCHAR domainName[256];
+    UINT32 domainLength = 0;
+
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Safety checks
+    if (!deviceContext || deviceContext->ShuttingDown) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // If filtering is disabled, permit all
+    if (!deviceContext->FilteringEnabled) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Determine IP version
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_DATAGRAM_DATA_V6);
+
+    // Extract connection info based on IP version
+    if (isIPv6) {
+        FWP_BYTE_ARRAY16* localAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V6_IP_LOCAL_ADDRESS].value.byteArray16;
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (localAddrPtr) RtlCopyMemory(localAddrV6, localAddrPtr->byteArray16, 16);
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V6_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V6_IP_REMOTE_PORT].value.uint16;
+        direction = (UINT8)InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V6_DIRECTION].value.uint8;
+    } else {
+        localAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V4_IP_LOCAL_ADDRESS].value.uint32;
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V4_IP_REMOTE_ADDRESS].value.uint32;
+        localPort = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V4_IP_LOCAL_PORT].value.uint16;
+        remotePort = InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V4_IP_REMOTE_PORT].value.uint16;
+        direction = (UINT8)InFixedValues->incomingValue[FWPS_FIELD_DATAGRAM_DATA_V4_DIRECTION].value.uint8;
+    }
+
+    // Get process ID
+    if (InMetaValues && (InMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID)) {
+        processId = (UINT32)(ULONG_PTR)InMetaValues->processId;
+    }
+
+    // === SAFETY BYPASSES ===
+
+    // 1. Skip DNS traffic (port 53) - prevents infinite feedback loop
+    if (remotePort == 53 || localPort == 53) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 2. Skip mDNS traffic (port 5353) - multicast DNS
+    if (remotePort == 5353 || localPort == 5353) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 3. Skip DHCP traffic (ports 67, 68)
+    if (remotePort == 67 || remotePort == 68 || localPort == 67 || localPort == 68) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 4. Skip NTP traffic (port 123) - time sync is critical
+    if (remotePort == 123 || localPort == 123) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // 5. Skip multicast addresses
+    if (isIPv6) {
+        if (remoteAddrV6[0] == 0xFF) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if ((remoteAddrV4 & 0xF0000000) == 0xE0000000) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // 6. Skip localhost/loopback
+    if (isIPv6) {
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16 ||
+            RtlCompareMemory(localAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if (remoteAddrV4 == 0x7F000001 || localAddrV4 == 0x7F000001) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // === CHECK VERDICT CACHE ===
+    // If we have a cached verdict for this (process, IP, port) combo, use it
+    if (SerenoVerdictCacheLookup(
+            deviceContext,
+            processId,
+            isIPv6,
+            remoteAddrV4,
+            isIPv6 ? remoteAddrV6 : NULL,
+            remotePort,
+            NULL,
+            0,
+            &cachedVerdict)) {
+        if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+            SERENO_DBG("UDP BLOCKED (cache): %s port=%u PID=%u\n",
+                isIPv6 ? "IPv6" : "IPv4", remotePort, processId);
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            return;
+        } else {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // === CHECK DNS CACHE FOR DOMAIN-BASED BLOCKING ===
+    // Lookup domain from IP, then check blocked domain list
+    if (SerenoDnsCacheLookup(
+            deviceContext,
+            isIPv6,
+            remoteAddrV4,
+            isIPv6 ? remoteAddrV6 : NULL,
+            domainName,
+            sizeof(domainName) / sizeof(WCHAR),
+            &domainLength) && domainLength > 0) {
+        // Check if domain is blocked
+        if (SerenoBlockedDomainCheck(deviceContext, domainName, domainLength)) {
+            SERENO_DBG("UDP BLOCKED (domain): %S port=%u PID=%u\n",
+                domainName, remotePort, processId);
+
+            // Cache this block verdict for future packets
+            SerenoVerdictCacheAdd(
+                deviceContext,
+                processId,
+                isIPv6,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                remotePort,
+                domainName,
+                domainLength,
+                SERENO_VERDICT_BLOCK
+            );
+
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            return;
+        }
+    }
+
+    // Default: permit UDP if not in blocklist
+    // Unlike TCP, we can't async pend UDP, so unknown traffic is permitted
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+}
+
+// ============================================================================
+// PHASE 2: ICMP FILTERING
+// ============================================================================
+
+/*
+ * SerenoClassifyIcmpInbound - Classify inbound ICMP packets
+ *
+ * FWPM_LAYER_INBOUND_ICMP_ERROR_V4/V6 layer allows us to filter incoming ICMP.
+ * Note: This layer is specifically for ICMP error messages, not all ICMP.
+ * For comprehensive ICMP filtering, we also need the IP packet layer.
+ *
+ * ICMP has no concept of ports or process context at this layer.
+ * We filter based on:
+ * - Source IP address
+ * - ICMP type/code (informational)
+ */
+VOID NTAPI
+SerenoClassifyIcmpInbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    BOOLEAN isIPv6;
+    UINT32 remoteAddrV4 = 0;
+    UINT8 remoteAddrV6[16] = {0};
+    SERENO_VERDICT cachedVerdict;
+
+    UNREFERENCED_PARAMETER(InMetaValues);
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Safety checks
+    if (!deviceContext || deviceContext->ShuttingDown) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // If filtering is disabled, permit all
+    if (!deviceContext->FilteringEnabled) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Determine IP version
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_INBOUND_ICMP_ERROR_V6);
+
+    // Extract source IP
+    if (isIPv6) {
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_ICMP_ERROR_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+    } else {
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_ICMP_ERROR_V4_IP_REMOTE_ADDRESS].value.uint32;
+    }
+
+    // Skip localhost/loopback
+    if (isIPv6) {
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if (remoteAddrV4 == 0x7F000001) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // Check verdict cache by address only (ICMP has no port or process)
+    // Use port 0 to indicate ICMP
+    if (SerenoVerdictCacheLookupByAddress(
+            deviceContext,
+            isIPv6,
+            remoteAddrV4,
+            isIPv6 ? remoteAddrV6 : NULL,
+            0,  // port=0 for ICMP
+            &cachedVerdict)) {
+        if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+            SERENO_DBG("ICMP_IN BLOCKED: %u.%u.%u.%u\n",
+                (UINT8)(remoteAddrV4 >> 24), (UINT8)(remoteAddrV4 >> 16),
+                (UINT8)(remoteAddrV4 >> 8), (UINT8)remoteAddrV4);
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            return;
+        }
+    }
+
+    // Default: permit ICMP
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+}
+
+/*
+ * SerenoClassifyIcmpOutbound - Classify outbound ICMP packets
+ *
+ * FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4/V6 layer allows us to filter outgoing ICMP.
+ * Covers ping, traceroute source, etc.
+ */
+VOID NTAPI
+SerenoClassifyIcmpOutbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    BOOLEAN isIPv6;
+    UINT32 remoteAddrV4 = 0;
+    UINT8 remoteAddrV6[16] = {0};
+    SERENO_VERDICT cachedVerdict;
+
+    UNREFERENCED_PARAMETER(InMetaValues);
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Safety checks
+    if (!deviceContext || deviceContext->ShuttingDown) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // If filtering is disabled, permit all
+    if (!deviceContext->FilteringEnabled) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Determine IP version
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_OUTBOUND_ICMP_ERROR_V6);
+
+    // Extract destination IP
+    if (isIPv6) {
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_ICMP_ERROR_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+    } else {
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_ICMP_ERROR_V4_IP_REMOTE_ADDRESS].value.uint32;
+    }
+
+    // Skip localhost/loopback
+    if (isIPv6) {
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if (remoteAddrV4 == 0x7F000001) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // Check verdict cache by address only (ICMP has no port or process)
+    if (SerenoVerdictCacheLookupByAddress(
+            deviceContext,
+            isIPv6,
+            remoteAddrV4,
+            isIPv6 ? remoteAddrV6 : NULL,
+            0,  // port=0 for ICMP
+            &cachedVerdict)) {
+        if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+            SERENO_DBG("ICMP_OUT BLOCKED: %u.%u.%u.%u\n",
+                (UINT8)(remoteAddrV4 >> 24), (UINT8)(remoteAddrV4 >> 16),
+                (UINT8)(remoteAddrV4 >> 8), (UINT8)remoteAddrV4);
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            return;
+        }
+    }
+
+    // Default: permit ICMP
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+}
+
+// ============================================================================
+// PHASE 3: IP PACKET LAYER - RAW/OTHER PROTOCOLS
+// ============================================================================
+
+/*
+ * SerenoClassifyIpPacketInbound - Classify inbound IP packets (raw protocols)
+ *
+ * FWPM_LAYER_INBOUND_IPPACKET_V4/V6 catches all inbound IP packets.
+ * We use this as a catch-all for protocols not handled by upper layers:
+ * - GRE (47)
+ * - ESP/AH (50/51) - IPSec
+ * - IGMP (2)
+ * - Other raw IP protocols
+ *
+ * TCP (6), UDP (17), and ICMP (1/58) are excluded via filter conditions
+ * to avoid double-processing since they're handled by dedicated layers.
+ */
+VOID NTAPI
+SerenoClassifyIpPacketInbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    BOOLEAN isIPv6;
+    UINT32 remoteAddrV4 = 0;
+    UINT8 remoteAddrV6[16] = {0};
+    UINT8 protocol = 0;
+    SERENO_VERDICT cachedVerdict;
+
+    UNREFERENCED_PARAMETER(InMetaValues);
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Safety checks
+    if (!deviceContext || deviceContext->ShuttingDown) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // If filtering is disabled, permit all
+    if (!deviceContext->FilteringEnabled) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Determine IP version
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_INBOUND_IPPACKET_V6);
+
+    // Extract protocol and addresses
+    if (isIPv6) {
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_IPPACKET_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+        // Protocol is in the IP header's Next Header field
+        // Note: At IP packet layer, we may not have direct protocol field access
+        // Filter conditions should exclude TCP/UDP/ICMP
+    } else {
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_INBOUND_IPPACKET_V4_IP_REMOTE_ADDRESS].value.uint32;
+    }
+
+    // Skip localhost/loopback
+    if (isIPv6) {
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if (remoteAddrV4 == 0x7F000001) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // Skip multicast
+    if (isIPv6) {
+        if (remoteAddrV6[0] == 0xFF) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if ((remoteAddrV4 & 0xF0000000) == 0xE0000000) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // Check verdict cache by address
+    // Use port = protocol number for raw IP protocol filtering
+    if (SerenoVerdictCacheLookupByAddress(
+            deviceContext,
+            isIPv6,
+            remoteAddrV4,
+            isIPv6 ? remoteAddrV6 : NULL,
+            protocol,  // Use protocol number as "port" for cache key
+            &cachedVerdict)) {
+        if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+            SERENO_DBG("IP_PKT_IN BLOCKED: proto=%u %u.%u.%u.%u\n",
+                protocol,
+                (UINT8)(remoteAddrV4 >> 24), (UINT8)(remoteAddrV4 >> 16),
+                (UINT8)(remoteAddrV4 >> 8), (UINT8)remoteAddrV4);
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            return;
+        }
+    }
+
+    // Default: permit raw IP packets
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
+}
+
+/*
+ * SerenoClassifyIpPacketOutbound - Classify outbound IP packets (raw protocols)
+ *
+ * FWPM_LAYER_OUTBOUND_IPPACKET_V4/V6 catches all outbound IP packets.
+ * Same as inbound, but for outgoing traffic.
+ */
+VOID NTAPI
+SerenoClassifyIpPacketOutbound(
+    _In_ const FWPS_INCOMING_VALUES0* InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0* InMetaValues,
+    _Inout_opt_ void* LayerData,
+    _In_opt_ const void* ClassifyContext,
+    _In_ const FWPS_FILTER3* Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0* ClassifyOut
+)
+{
+    PSERENO_DEVICE_CONTEXT deviceContext = g_DeviceContext;
+    BOOLEAN isIPv6;
+    UINT32 remoteAddrV4 = 0;
+    UINT8 remoteAddrV6[16] = {0};
+    UINT8 protocol = 0;
+    SERENO_VERDICT cachedVerdict;
+
+    UNREFERENCED_PARAMETER(InMetaValues);
+    UNREFERENCED_PARAMETER(LayerData);
+    UNREFERENCED_PARAMETER(ClassifyContext);
+    UNREFERENCED_PARAMETER(Filter);
+    UNREFERENCED_PARAMETER(FlowContext);
+
+    // Safety checks
+    if (!deviceContext || deviceContext->ShuttingDown) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // If filtering is disabled, permit all
+    if (!deviceContext->FilteringEnabled) {
+        ClassifyOut->actionType = FWP_ACTION_PERMIT;
+        return;
+    }
+
+    // Determine IP version
+    isIPv6 = (InFixedValues->layerId == FWPS_LAYER_OUTBOUND_IPPACKET_V6);
+
+    // Extract destination IP
+    if (isIPv6) {
+        FWP_BYTE_ARRAY16* remoteAddrPtr = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_IPPACKET_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+        if (remoteAddrPtr) RtlCopyMemory(remoteAddrV6, remoteAddrPtr->byteArray16, 16);
+    } else {
+        remoteAddrV4 = InFixedValues->incomingValue[FWPS_FIELD_OUTBOUND_IPPACKET_V4_IP_REMOTE_ADDRESS].value.uint32;
+    }
+
+    // Skip localhost/loopback
+    if (isIPv6) {
+        static const UINT8 loopbackV6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+        if (RtlCompareMemory(remoteAddrV6, loopbackV6, 16) == 16) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if (remoteAddrV4 == 0x7F000001) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // Skip multicast
+    if (isIPv6) {
+        if (remoteAddrV6[0] == 0xFF) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    } else {
+        if ((remoteAddrV4 & 0xF0000000) == 0xE0000000) {
+            ClassifyOut->actionType = FWP_ACTION_PERMIT;
+            return;
+        }
+    }
+
+    // Check verdict cache by address
+    if (SerenoVerdictCacheLookupByAddress(
+            deviceContext,
+            isIPv6,
+            remoteAddrV4,
+            isIPv6 ? remoteAddrV6 : NULL,
+            protocol,
+            &cachedVerdict)) {
+        if (cachedVerdict == SERENO_VERDICT_BLOCK) {
+            SERENO_DBG("IP_PKT_OUT BLOCKED: proto=%u %u.%u.%u.%u\n",
+                protocol,
+                (UINT8)(remoteAddrV4 >> 24), (UINT8)(remoteAddrV4 >> 16),
+                (UINT8)(remoteAddrV4 >> 8), (UINT8)remoteAddrV4);
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            return;
+        }
+    }
+
+    // Default: permit raw IP packets
+    ClassifyOut->actionType = FWP_ACTION_PERMIT;
 }

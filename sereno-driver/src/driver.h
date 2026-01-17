@@ -77,6 +77,7 @@ DEFINE_GUID(GUID_NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 #define IOCTL_SERENO_CLEAR_BLOCKED_DOMAINS CTL_CODE(FILE_DEVICE_SERENO, 0x809, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_SERENO_GET_BANDWIDTH CTL_CODE(FILE_DEVICE_SERENO, 0x80A, METHOD_BUFFERED, FILE_READ_ACCESS)
 #define IOCTL_SERENO_GET_FLOW_STATE CTL_CODE(FILE_DEVICE_SERENO, 0x80B, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define IOCTL_SERENO_GET_ICMP CTL_CODE(FILE_DEVICE_SERENO, 0x80C, METHOD_BUFFERED, FILE_READ_ACCESS)
 
 // Verdict values
 typedef enum _SERENO_VERDICT
@@ -191,6 +192,23 @@ typedef struct _SERENO_SNI_NOTIFICATION
     WCHAR DomainName[256];   // Extracted SNI domain
     UINT32 DomainNameLength; // Length in characters
 } SERENO_SNI_NOTIFICATION, *PSERENO_SNI_NOTIFICATION;
+
+// ICMP notification - sent to usermode when ICMP traffic is observed
+// Allows TUI to display ping, traceroute, and other ICMP activity
+typedef struct _SERENO_ICMP_NOTIFICATION
+{
+    UINT64 Timestamp;
+    UINT32 ProcessId;       // Usually 0 for ICMP (kernel handles it)
+    UINT8 IpVersion;        // 4 or 6
+    UINT8 Direction;        // 0=Outbound, 1=Inbound
+    UINT8 IcmpType;         // ICMP type (8=echo request, 0=echo reply, etc.)
+    UINT8 IcmpCode;         // ICMP code
+    UINT32 LocalAddressV4;  // Local IP (for matching)
+    UINT32 RemoteAddressV4; // Remote IP (for matching)
+    UINT8 LocalAddressV6[16];
+    UINT8 RemoteAddressV6[16];
+    UINT32 Reserved;
+} SERENO_ICMP_NOTIFICATION, *PSERENO_ICMP_NOTIFICATION;
 
 // Blocked domain request - sent from usermode to add domain to blocklist
 typedef struct _SERENO_BLOCKED_DOMAIN_REQUEST
@@ -411,6 +429,38 @@ typedef struct _SERENO_DEVICE_CONTEXT
     UINT64 FlowEstFilterIdV4;
     UINT64 FlowEstFilterIdV6;
 
+    // Callout IDs - Datagram Data (UDP blocking)
+    UINT32 DatagramCalloutIdV4;
+    UINT32 DatagramCalloutIdV6;
+
+    // Filter IDs - Datagram Data (UDP blocking)
+    UINT64 DatagramFilterIdV4;
+    UINT64 DatagramFilterIdV6;
+
+    // Callout IDs - ICMP filtering
+    UINT32 IcmpInCalloutIdV4;
+    UINT32 IcmpInCalloutIdV6;
+    UINT32 IcmpOutCalloutIdV4;
+    UINT32 IcmpOutCalloutIdV6;
+
+    // Filter IDs - ICMP filtering
+    UINT64 IcmpInFilterIdV4;
+    UINT64 IcmpInFilterIdV6;
+    UINT64 IcmpOutFilterIdV4;
+    UINT64 IcmpOutFilterIdV6;
+
+    // Callout IDs - IP Packet (raw/other protocols)
+    UINT32 IpPacketInCalloutIdV4;
+    UINT32 IpPacketInCalloutIdV6;
+    UINT32 IpPacketOutCalloutIdV4;
+    UINT32 IpPacketOutCalloutIdV6;
+
+    // Filter IDs - IP Packet (raw/other protocols)
+    UINT64 IpPacketInFilterIdV4;
+    UINT64 IpPacketInFilterIdV6;
+    UINT64 IpPacketOutFilterIdV4;
+    UINT64 IpPacketOutFilterIdV6;
+
     // Pending requests
     LIST_ENTRY PendingList;
     KSPIN_LOCK PendingLock;
@@ -552,6 +602,71 @@ DEFINE_GUID(SERENO_CALLOUT_FLOW_EST_V4_GUID,
 DEFINE_GUID(SERENO_CALLOUT_FLOW_EST_V6_GUID,
             0x53455245, 0x4E4F, 0x464C,
             0x4F, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// ============================================================================
+// Datagram Data Layer - UDP Blocking (Phase 1)
+// FWPM_LAYER_DATAGRAM_DATA_V4/V6 allows blocking UDP packets
+// ============================================================================
+
+// {53455245-4E4F-4447-5201-000000000001} Datagram V4
+DEFINE_GUID(SERENO_CALLOUT_DATAGRAM_V4_GUID,
+            0x53455245, 0x4E4F, 0x4447,
+            0x52, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4447-5202-000000000001} Datagram V6
+DEFINE_GUID(SERENO_CALLOUT_DATAGRAM_V6_GUID,
+            0x53455245, 0x4E4F, 0x4447,
+            0x52, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// ============================================================================
+// ICMP Error Layers - ICMP Filtering (Phase 2)
+// Covers ping, traceroute, etc.
+// ============================================================================
+
+// {53455245-4E4F-4943-4D01-000000000001} ICMP Inbound V4
+DEFINE_GUID(SERENO_CALLOUT_ICMP_IN_V4_GUID,
+            0x53455245, 0x4E4F, 0x4943,
+            0x4D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4943-4D02-000000000001} ICMP Inbound V6
+DEFINE_GUID(SERENO_CALLOUT_ICMP_IN_V6_GUID,
+            0x53455245, 0x4E4F, 0x4943,
+            0x4D, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4943-4D03-000000000001} ICMP Outbound V4
+DEFINE_GUID(SERENO_CALLOUT_ICMP_OUT_V4_GUID,
+            0x53455245, 0x4E4F, 0x4943,
+            0x4D, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4943-4D04-000000000001} ICMP Outbound V6
+DEFINE_GUID(SERENO_CALLOUT_ICMP_OUT_V6_GUID,
+            0x53455245, 0x4E4F, 0x4943,
+            0x4D, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// ============================================================================
+// IP Packet Layer - Raw/Other Protocols (Phase 3)
+// Catch-all for GRE, IPSec, IGMP, etc.
+// ============================================================================
+
+// {53455245-4E4F-4950-5001-000000000001} IP Packet Inbound V4
+DEFINE_GUID(SERENO_CALLOUT_IPPACKET_IN_V4_GUID,
+            0x53455245, 0x4E4F, 0x4950,
+            0x50, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4950-5002-000000000001} IP Packet Inbound V6
+DEFINE_GUID(SERENO_CALLOUT_IPPACKET_IN_V6_GUID,
+            0x53455245, 0x4E4F, 0x4950,
+            0x50, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4950-5003-000000000001} IP Packet Outbound V4
+DEFINE_GUID(SERENO_CALLOUT_IPPACKET_OUT_V4_GUID,
+            0x53455245, 0x4E4F, 0x4950,
+            0x50, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
+
+// {53455245-4E4F-4950-5004-000000000001} IP Packet Outbound V6
+DEFINE_GUID(SERENO_CALLOUT_IPPACKET_OUT_V6_GUID,
+            0x53455245, 0x4E4F, 0x4950,
+            0x50, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
 
 // Function prototypes
 DRIVER_INITIALIZE DriverEntry;
@@ -724,5 +839,67 @@ VOID SerenoFlowStateNotifyAdd(
     _In_ UINT16 LocalPort,
     _In_ UINT16 RemotePort);
 BOOLEAN SerenoFlowStateNotifyGet(_In_ PSERENO_DEVICE_CONTEXT Context, _Out_ PSERENO_FLOW_STATE_NOTIFICATION Notification);
+
+// ============================================================================
+// Datagram Data Layer - UDP Blocking (Phase 1)
+// ============================================================================
+
+// Datagram classify function - intercepts UDP packets for blocking
+VOID NTAPI SerenoClassifyDatagram(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
+
+// ============================================================================
+// ICMP Error Layers - ICMP Filtering (Phase 2)
+// ============================================================================
+
+// ICMP inbound classify function - filters incoming ICMP
+VOID NTAPI SerenoClassifyIcmpInbound(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
+
+// ICMP outbound classify function - filters outgoing ICMP (ping, etc.)
+VOID NTAPI SerenoClassifyIcmpOutbound(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
+
+// ============================================================================
+// IP Packet Layer - Raw/Other Protocols (Phase 3)
+// ============================================================================
+
+// IP Packet inbound classify function - filters raw inbound packets
+VOID NTAPI SerenoClassifyIpPacketInbound(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
+
+// IP Packet outbound classify function - filters raw outbound packets
+VOID NTAPI SerenoClassifyIpPacketOutbound(
+    _In_ const FWPS_INCOMING_VALUES0 *InFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *InMetaValues,
+    _Inout_opt_ void *LayerData,
+    _In_opt_ const void *ClassifyContext,
+    _In_ const FWPS_FILTER3 *Filter,
+    _In_ UINT64 FlowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *ClassifyOut);
 
 #endif // SERENO_DRIVER_H

@@ -24,6 +24,7 @@ dirs = "6"
 # TUI dependencies
 ratatui = "0.29"
 crossterm = "0.28"
+indexmap = "2"
 
 # Driver communication (Windows)
 [target.'cfg(windows)'.dependencies]

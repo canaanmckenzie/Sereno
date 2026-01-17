@@ -10,7 +10,52 @@ pub enum Protocol {
     Tcp,
     Udp,
     Icmp,
+    /// ICMPv6 (protocol 58)
+    Icmpv6,
+    /// GRE tunnel (protocol 47)
+    Gre,
+    /// IPSec ESP (protocol 50)
+    Esp,
+    /// IPSec AH (protocol 51)
+    Ah,
+    /// IGMP (protocol 2)
+    Igmp,
+    /// Other/unknown protocol with raw protocol number
+    Other(u8),
     Any,
+}
+
+impl Protocol {
+    /// Convert from raw IP protocol number
+    pub fn from_protocol_number(proto: u8) -> Self {
+        match proto {
+            1 => Protocol::Icmp,
+            2 => Protocol::Igmp,
+            6 => Protocol::Tcp,
+            17 => Protocol::Udp,
+            47 => Protocol::Gre,
+            50 => Protocol::Esp,
+            51 => Protocol::Ah,
+            58 => Protocol::Icmpv6,
+            _ => Protocol::Other(proto),
+        }
+    }
+
+    /// Get the raw IP protocol number
+    pub fn protocol_number(&self) -> Option<u8> {
+        match self {
+            Protocol::Tcp => Some(6),
+            Protocol::Udp => Some(17),
+            Protocol::Icmp => Some(1),
+            Protocol::Icmpv6 => Some(58),
+            Protocol::Gre => Some(47),
+            Protocol::Esp => Some(50),
+            Protocol::Ah => Some(51),
+            Protocol::Igmp => Some(2),
+            Protocol::Other(n) => Some(*n),
+            Protocol::Any => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Protocol {
@@ -19,6 +64,12 @@ impl std::fmt::Display for Protocol {
             Protocol::Tcp => write!(f, "tcp"),
             Protocol::Udp => write!(f, "udp"),
             Protocol::Icmp => write!(f, "icmp"),
+            Protocol::Icmpv6 => write!(f, "icmpv6"),
+            Protocol::Gre => write!(f, "gre"),
+            Protocol::Esp => write!(f, "esp"),
+            Protocol::Ah => write!(f, "ah"),
+            Protocol::Igmp => write!(f, "igmp"),
+            Protocol::Other(n) => write!(f, "proto:{}", n),
             Protocol::Any => write!(f, "any"),
         }
     }

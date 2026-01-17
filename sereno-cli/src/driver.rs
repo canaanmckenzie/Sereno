@@ -132,6 +132,74 @@ mod windows_impl {
     }
 
     // ============================================================================
+    // ICMP Notification Structures
+    // ============================================================================
+
+    const IOCTL_SERENO_GET_ICMP: u32 = ctl_code(FILE_DEVICE_SERENO, 0x80C, METHOD_BUFFERED, FILE_READ_ACCESS);
+
+    /// Raw ICMP notification from kernel - matches SERENO_ICMP_NOTIFICATION in driver.h
+    #[repr(C, packed)]
+    #[derive(Clone, Copy)]
+    pub struct DriverIcmpNotification {
+        pub timestamp: u64,
+        pub process_id: u32,
+        pub ip_version: u8,
+        pub direction: u8,
+        pub icmp_type: u8,
+        pub icmp_code: u8,
+        pub local_address_v4: u32,
+        pub remote_address_v4: u32,
+        pub local_address_v6: [u8; 16],
+        pub remote_address_v6: [u8; 16],
+        pub reserved: u32,
+    }
+
+    /// Parsed ICMP notification for usermode
+    #[derive(Debug, Clone)]
+    pub struct IcmpNotification {
+        pub local_address: IpAddr,
+        pub remote_address: IpAddr,
+        pub direction: Direction,
+        pub icmp_type: u8,
+        pub icmp_code: u8,
+    }
+
+    impl DriverIcmpNotification {
+        pub fn parse(&self) -> IcmpNotification {
+            let ip_version = self.ip_version;
+            let local_v4 = self.local_address_v4;
+            let remote_v4 = self.remote_address_v4;
+            let local_v6 = self.local_address_v6;
+            let remote_v6 = self.remote_address_v6;
+            let direction = if self.direction == 0 { Direction::Outbound } else { Direction::Inbound };
+            let icmp_type = self.icmp_type;
+            let icmp_code = self.icmp_code;
+
+            let (local_address, remote_address) = if ip_version == 6 {
+                (
+                    IpAddr::V6(Ipv6Addr::from(local_v6)),
+                    IpAddr::V6(Ipv6Addr::from(remote_v6)),
+                )
+            } else {
+                let local_bytes = local_v4.to_be_bytes();
+                let remote_bytes = remote_v4.to_be_bytes();
+                (
+                    IpAddr::V4(Ipv4Addr::new(local_bytes[0], local_bytes[1], local_bytes[2], local_bytes[3])),
+                    IpAddr::V4(Ipv4Addr::new(remote_bytes[0], remote_bytes[1], remote_bytes[2], remote_bytes[3])),
+                )
+            };
+
+            IcmpNotification {
+                local_address,
+                remote_address,
+                direction,
+                icmp_type,
+                icmp_code,
+            }
+        }
+    }
+
+    // ============================================================================
     // TLM Bandwidth Statistics Structures
     // ============================================================================
 
@@ -261,12 +329,7 @@ mod windows_impl {
             let process_id = self.process_id;
             let state = ConnectionState::from(self.state);
             let direction = if self.direction == 0 { Direction::Outbound } else { Direction::Inbound };
-            let protocol = match self.protocol {
-                6 => Protocol::Tcp,
-                17 => Protocol::Udp,
-                1 => Protocol::Icmp,
-                _ => Protocol::Tcp,
-            };
+            let protocol = Protocol::from_protocol_number(self.protocol);
 
             let (local_address, remote_address) = if ip_version == 6 {
                 (
@@ -417,12 +480,7 @@ mod windows_impl {
                 std::ptr::copy_nonoverlapping(domain_ptr, domain_buf.as_mut_ptr(), 256);
             }
 
-            let protocol = match protocol_byte {
-                6 => Protocol::Tcp,
-                17 => Protocol::Udp,
-                1 => Protocol::Icmp,
-                _ => Protocol::Any,
-            };
+            let protocol = Protocol::from_protocol_number(protocol_byte);
 
             let direction = match direction_byte {
                 0 => Direction::Outbound,
@@ -622,6 +680,42 @@ mod windows_impl {
                 // STATUS_NO_MORE_ENTRIES = 0x8000001A = 2147483674 decimal
                 // But Windows returns it as NTSTATUS which maps to error code 259 (ERROR_NO_MORE_ITEMS)
                 // or raw NTSTATUS 0x8000001A
+                if err.raw_os_error() == Some(259) || err.raw_os_error() == Some(0x1A) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+
+        /// Get next ICMP notification from driver (ping, traceroute, etc.)
+        /// NOTE: Requires driver rebuild with ICMP notification queue support
+        pub fn get_icmp(&self) -> io::Result<Option<IcmpNotification>> {
+            let mut notification: DriverIcmpNotification = unsafe { mem::zeroed() };
+            let mut bytes_returned = 0u32;
+
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    IOCTL_SERENO_GET_ICMP,
+                    None,
+                    0,
+                    Some(&mut notification as *mut _ as *mut _),
+                    mem::size_of::<DriverIcmpNotification>() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            if result.is_ok() {
+                if bytes_returned >= mem::size_of::<DriverIcmpNotification>() as u32 {
+                    Ok(Some(notification.parse()))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                let err = io::Error::last_os_error();
+                // STATUS_NO_MORE_ENTRIES or ERROR_NO_MORE_ITEMS
                 if err.raw_os_error() == Some(259) || err.raw_os_error() == Some(0x1A) {
                     Ok(None)
                 } else {

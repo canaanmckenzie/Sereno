@@ -136,12 +136,7 @@ impl DriverConnectionRequest {
             std::ptr::copy_nonoverlapping(domain_ptr, domain_buf.as_mut_ptr(), 256);
         }
 
-        let protocol = match protocol_byte {
-            6 => Protocol::Tcp,
-            17 => Protocol::Udp,
-            1 => Protocol::Icmp,
-            _ => Protocol::Any,
-        };
+        let protocol = Protocol::from_protocol_number(protocol_byte);
 
         let direction = match direction_byte {
             0 => Direction::Outbound,

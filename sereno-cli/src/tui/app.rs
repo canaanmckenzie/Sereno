@@ -1,5 +1,6 @@
 //! TUI Application State
 
+use indexmap::IndexMap;
 use sereno_core::types::Rule;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
@@ -74,12 +75,174 @@ pub struct DurationPrompt {
     pub selected_index: usize,
 }
 
+/// Authorization status for a connection (unified view)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthStatus {
+    /// TCP authorized (green) - allowed by rule or user
+    Allow,
+    /// TCP blocked (red) - denied by rule or user
+    Deny,
+    /// TCP awaiting user decision (yellow)
+    Pending,
+    /// UDP auto-permitted (cyan) - no authorization needed
+    Auto,
+    /// Silent Allow mode - auto-allowed for learning (magenta)
+    SilentAllow,
+}
+
+impl AuthStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            AuthStatus::Allow => "ALLOW",
+            AuthStatus::Deny => "DENY",
+            AuthStatus::Pending => "ASK",
+            AuthStatus::Auto => "AUTO",
+            AuthStatus::SilentAllow => "SA",
+        }
+    }
+}
+
+/// A unified connection combining ALE authorization events and TLM bandwidth data
+#[derive(Debug, Clone)]
+pub struct UnifiedConnection {
+    // Identity (correlation key)
+    pub local_port: u16,
+    pub remote_address: IpAddr,
+    pub remote_port: u16,
+    pub protocol: sereno_core::types::Protocol,
+    pub direction: sereno_core::types::Direction, // Inbound/Outbound
+
+    // Process info
+    pub process_name: String,
+    pub process_id: u32,
+    pub process_path: String,
+
+    // Authorization (from ALE)
+    pub auth_status: AuthStatus,
+    pub signature_status: Option<crate::signature::SignatureStatus>,
+    pub request_id: Option<u64>,
+
+    // Domain/destination
+    pub destination: String, // Best available: SNI > DNS cache > IP
+
+    // Bandwidth (from TLM)
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub duration_secs: f64,
+
+    // State
+    pub first_seen: String,
+    pub is_active: bool, // True if TLM is still reporting this flow
+}
+
+impl UnifiedConnection {
+    /// Create a new connection from an ALE authorization event
+    pub fn from_ale_event(
+        local_port: u16,
+        remote_address: IpAddr,
+        remote_port: u16,
+        protocol: sereno_core::types::Protocol,
+        direction: sereno_core::types::Direction,
+        process_name: String,
+        process_id: u32,
+        process_path: String,
+        auth_status: AuthStatus,
+        destination: String,
+        signature_status: Option<crate::signature::SignatureStatus>,
+        request_id: Option<u64>,
+    ) -> Self {
+        Self {
+            local_port,
+            remote_address,
+            remote_port,
+            protocol,
+            direction,
+            process_name,
+            process_id,
+            process_path,
+            auth_status,
+            signature_status,
+            request_id,
+            destination,
+            bytes_sent: 0,
+            bytes_received: 0,
+            duration_secs: 0.0,
+            first_seen: chrono::Local::now().format("%H:%M:%S").to_string(),
+            is_active: true,
+        }
+    }
+
+    /// Update bandwidth stats from TLM poll
+    pub fn update_bandwidth(&mut self, bytes_sent: u64, bytes_received: u64, duration_secs: f64) {
+        self.bytes_sent = bytes_sent;
+        self.bytes_received = bytes_received;
+        self.duration_secs = duration_secs;
+        self.is_active = true;
+    }
+}
+
+/// Key for unified connection lookup
+pub type UnifiedConnectionKey = (u16, IpAddr, u16); // (local_port, remote_ip, remote_port)
+
+/// View mode for connections tab
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    /// Show individual connections (default)
+    #[default]
+    Detailed,
+    /// Show connections grouped by destination
+    Grouped,
+}
+
+impl ViewMode {
+    pub fn toggle(self) -> Self {
+        match self {
+            ViewMode::Detailed => ViewMode::Grouped,
+            ViewMode::Grouped => ViewMode::Detailed,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewMode::Detailed => "Detailed",
+            ViewMode::Grouped => "Grouped",
+        }
+    }
+}
+
+/// A grouped connection aggregating multiple connections by process and destination
+/// Like Little Snitch: shows what each app is talking to
+#[derive(Debug, Clone)]
+pub struct GroupedConnection {
+    /// Process name (aggregates all PIDs)
+    pub process_name: String,
+    /// Destination (domain or IP)
+    pub destination: String,
+    /// Ports used (may have multiple - e.g., 443, 80)
+    pub ports: Vec<u16>,
+    /// Protocols used (TCP, UDP, or both)
+    pub protocols: Vec<sereno_core::types::Protocol>,
+    /// Number of individual connections
+    pub connection_count: usize,
+    /// Number of unique PIDs
+    pub pid_count: usize,
+    /// Total bytes sent across all connections
+    pub total_bytes_sent: u64,
+    /// Total bytes received across all connections
+    pub total_bytes_received: u64,
+    /// First seen timestamp
+    pub first_seen: String,
+    /// Are any connections still active?
+    pub is_any_active: bool,
+    /// Most restrictive auth status (DENY > PENDING > SA > AUTO > ALLOW)
+    pub auth_status: AuthStatus,
+}
+
 /// Active tab in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
     #[default]
-    Monitor,
-    Flows,
+    Connections,
     Rules,
     Logs,
     Settings,
@@ -88,32 +251,29 @@ pub enum Tab {
 impl Tab {
     pub fn next(self) -> Self {
         match self {
-            Tab::Monitor => Tab::Flows,
-            Tab::Flows => Tab::Rules,
+            Tab::Connections => Tab::Rules,
             Tab::Rules => Tab::Logs,
             Tab::Logs => Tab::Settings,
-            Tab::Settings => Tab::Monitor,
+            Tab::Settings => Tab::Connections,
         }
     }
 
     pub fn prev(self) -> Self {
         match self {
-            Tab::Monitor => Tab::Settings,
-            Tab::Flows => Tab::Monitor,
-            Tab::Rules => Tab::Flows,
+            Tab::Connections => Tab::Settings,
+            Tab::Rules => Tab::Connections,
             Tab::Logs => Tab::Rules,
             Tab::Settings => Tab::Logs,
         }
     }
 
-    pub fn all() -> [Tab; 5] {
-        [Tab::Monitor, Tab::Flows, Tab::Rules, Tab::Logs, Tab::Settings]
+    pub fn all() -> [Tab; 4] {
+        [Tab::Connections, Tab::Rules, Tab::Logs, Tab::Settings]
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            Tab::Monitor => "Monitor",
-            Tab::Flows => "Flows",
+            Tab::Connections => "Connections",
             Tab::Rules => "Rules",
             Tab::Logs => "Logs",
             Tab::Settings => "Settings",
@@ -122,11 +282,10 @@ impl Tab {
 
     pub fn key(self) -> char {
         match self {
-            Tab::Monitor => '1',
-            Tab::Flows => '2',
-            Tab::Rules => '3',
-            Tab::Logs => '4',
-            Tab::Settings => '5',
+            Tab::Connections => '1',
+            Tab::Rules => '2',
+            Tab::Logs => '3',
+            Tab::Settings => '4',
         }
     }
 }
@@ -240,6 +399,16 @@ pub enum FlowSort {
     Process,
 }
 
+/// Sorting options for unified connections
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnectionSort {
+    #[default]
+    Time,        // Most recent first
+    BytesTotal,  // Highest bandwidth first
+    Process,     // Alphabetical by process name
+    Destination, // Alphabetical by destination
+}
+
 /// Driver status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DriverStatus {
@@ -272,6 +441,8 @@ pub enum Mode {
     MonitorOnly,
     UserModeWfp,
     KernelDriver,
+    /// Silent Allow - auto-allow all connections while logging
+    SilentAllow,
 }
 
 impl Mode {
@@ -280,6 +451,17 @@ impl Mode {
             Mode::MonitorOnly => "Monitor Only",
             Mode::UserModeWfp => "User-Mode WFP",
             Mode::KernelDriver => "Kernel Driver",
+            Mode::SilentAllow => "Silent Allow",
+        }
+    }
+
+    /// Cycle to next mode (for UI toggle)
+    pub fn next(self) -> Self {
+        match self {
+            Mode::KernelDriver => Mode::SilentAllow,
+            Mode::SilentAllow => Mode::KernelDriver,
+            // MonitorOnly and UserModeWfp can't toggle
+            other => other,
         }
     }
 }
@@ -300,6 +482,8 @@ pub struct ConnectionEvent {
     /// Local (source) port - useful for correlating with TLM flows
     pub local_port: u16,
     pub protocol: String,
+    /// Connection direction (Inbound/Outbound)
+    pub direction: sereno_core::types::Direction,
     pub rule_name: Option<String>,
     pub is_pending: bool,
     /// Driver request ID for pending ASK (needed to send verdict)
@@ -406,13 +590,47 @@ pub struct App {
 
     /// Signature verification cache
     pub signature_cache: crate::signature::SignatureCache,
+
+    // ===== UNIFIED CONNECTIONS VIEW =====
+
+    /// Unified connections: ALE auth + TLM bandwidth merged
+    /// Key: (local_port, remote_ip, remote_port)
+    pub unified_connections: IndexMap<UnifiedConnectionKey, UnifiedConnection>,
+
+    /// Currently selected unified connection index
+    pub selected_unified: usize,
+
+    /// Scroll offset for unified connections table
+    pub unified_scroll_offset: usize,
+
+    /// Sort mode for unified connections
+    pub unified_sort: ConnectionSort,
+
+    // ===== CONNECTION GROUPING =====
+
+    /// View mode for connections tab (Detailed vs Grouped)
+    pub view_mode: ViewMode,
+
+    /// Grouped connections (computed on demand when switching to Grouped view)
+    pub grouped_connections: Vec<GroupedConnection>,
+
+    /// Currently selected grouped connection index
+    pub selected_grouped: usize,
+
+    /// Scroll offset for grouped connections table
+    pub grouped_scroll_offset: usize,
+
+    // ===== INFO POPUP =====
+
+    /// Show info popup for selected connection
+    pub show_info_popup: bool,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
             should_quit: false,
-            active_tab: Tab::Monitor,
+            active_tab: Tab::Connections,
             driver_status: DriverStatus::Unknown,
             mode: Mode::MonitorOnly,
             connections: VecDeque::with_capacity(500),
@@ -443,6 +661,18 @@ impl Default for App {
             flow_history: HashMap::new(),
             port_process_cache: HashMap::new(),
             signature_cache: crate::signature::SignatureCache::new(),
+            // Unified connections view
+            unified_connections: IndexMap::new(),
+            selected_unified: 0,
+            unified_scroll_offset: 0,
+            unified_sort: ConnectionSort::default(),
+            // Connection grouping
+            view_mode: ViewMode::default(),
+            grouped_connections: Vec::new(),
+            selected_grouped: 0,
+            grouped_scroll_offset: 0,
+            // Info popup
+            show_info_popup: false,
         }
     }
 }
@@ -492,14 +722,9 @@ impl App {
     /// Move selection up in current list
     pub fn select_up(&mut self) {
         match self.active_tab {
-            Tab::Monitor => {
-                if self.selected_connection > 0 {
-                    self.selected_connection -= 1;
-                }
-            }
-            Tab::Flows => {
-                if self.selected_flow > 0 {
-                    self.selected_flow -= 1;
+            Tab::Connections => {
+                if self.selected_unified > 0 {
+                    self.selected_unified -= 1;
                 }
             }
             Tab::Rules => {
@@ -514,14 +739,9 @@ impl App {
     /// Move selection down in current list
     pub fn select_down(&mut self) {
         match self.active_tab {
-            Tab::Monitor => {
-                if self.selected_connection < self.connections.len().saturating_sub(1) {
-                    self.selected_connection += 1;
-                }
-            }
-            Tab::Flows => {
-                if self.selected_flow < self.flows.len().saturating_sub(1) {
-                    self.selected_flow += 1;
+            Tab::Connections => {
+                if self.selected_unified < self.unified_connections.len().saturating_sub(1) {
+                    self.selected_unified += 1;
                 }
             }
             Tab::Rules => {
@@ -780,6 +1000,339 @@ impl App {
     pub fn get_process_by_port(&self, local_port: u16) -> Option<&(String, String, String)> {
         self.port_process_cache.get(&local_port)
     }
+
+    // ===== UNIFIED CONNECTIONS METHODS =====
+
+    /// Add or update a unified connection from an ALE authorization event
+    pub fn add_unified_from_ale(
+        &mut self,
+        local_port: u16,
+        remote_address: IpAddr,
+        remote_port: u16,
+        protocol: sereno_core::types::Protocol,
+        direction: sereno_core::types::Direction,
+        process_name: String,
+        process_id: u32,
+        process_path: String,
+        auth_status: AuthStatus,
+        destination: String,
+        signature_status: Option<crate::signature::SignatureStatus>,
+        request_id: Option<u64>,
+    ) {
+        let key: UnifiedConnectionKey = (local_port, remote_address, remote_port);
+
+        // Track stats
+        self.total_connections += 1;
+        if auth_status == AuthStatus::Deny {
+            self.blocked_connections += 1;
+        }
+
+        // Update or insert
+        if let Some(conn) = self.unified_connections.get_mut(&key) {
+            // Update existing connection
+            conn.auth_status = auth_status;
+            conn.signature_status = signature_status;
+            conn.request_id = request_id;
+            if !destination.is_empty() && destination != conn.destination {
+                // Update destination if better info available (e.g., SNI)
+                conn.destination = destination;
+            }
+        } else {
+            // Insert new connection
+            let conn = UnifiedConnection::from_ale_event(
+                local_port,
+                remote_address,
+                remote_port,
+                protocol,
+                direction,
+                process_name,
+                process_id,
+                process_path,
+                auth_status,
+                destination,
+                signature_status,
+                request_id,
+            );
+            self.unified_connections.insert(key, conn);
+        }
+
+        // Limit size (remove oldest entries if needed)
+        while self.unified_connections.len() > self.max_connections {
+            self.unified_connections.shift_remove_index(0);
+        }
+    }
+
+    /// Update unified connections from TLM bandwidth poll
+    /// This updates bandwidth stats and marks inactive connections
+    pub fn update_unified_from_tlm(&mut self, entries: &[crate::driver::BandwidthEntry]) {
+        use std::collections::HashSet;
+
+        // Build set of active keys from TLM
+        let active_keys: HashSet<UnifiedConnectionKey> = entries
+            .iter()
+            .map(|e| (e.local_port, e.remote_address, e.remote_port))
+            .collect();
+
+        // Mark all connections as inactive first
+        for conn in self.unified_connections.values_mut() {
+            conn.is_active = active_keys.contains(&(conn.local_port, conn.remote_address, conn.remote_port));
+        }
+
+        // Update bandwidth for each TLM entry
+        for entry in entries {
+            let key: UnifiedConnectionKey = (entry.local_port, entry.remote_address, entry.remote_port);
+
+            if let Some(conn) = self.unified_connections.get_mut(&key) {
+                // Update existing connection's bandwidth
+                conn.update_bandwidth(entry.bytes_sent, entry.bytes_received, entry.duration_secs);
+            } else {
+                // TLM-only connection (UDP, or ALE event missed)
+                // Create with AUTO status (UDP flows that didn't need authorization)
+                let process_name = self.port_process_cache
+                    .get(&entry.local_port)
+                    .map(|(name, _, _)| name.clone())
+                    .or_else(|| {
+                        if entry.process_id != 0 {
+                            self.process_names.get(&entry.process_id).cloned()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| identify_system_traffic(entry));
+
+                let destination = self.port_process_cache
+                    .get(&entry.local_port)
+                    .map(|(_, _, dest)| dest.clone())
+                    .unwrap_or_else(|| entry.remote_address.to_string());
+
+                let mut conn = UnifiedConnection::from_ale_event(
+                    entry.local_port,
+                    entry.remote_address,
+                    entry.remote_port,
+                    sereno_core::types::Protocol::Udp, // Assume UDP for TLM-only
+                    sereno_core::types::Direction::Outbound, // Assume outbound for TLM-only
+                    process_name,
+                    entry.process_id,
+                    String::new(), // No path for TLM-only
+                    AuthStatus::Auto, // Auto-permitted
+                    destination,
+                    None,
+                    None,
+                );
+                conn.update_bandwidth(entry.bytes_sent, entry.bytes_received, entry.duration_secs);
+                self.unified_connections.insert(key, conn);
+            }
+        }
+
+        // Update totals from all connections
+        self.total_bytes_sent = self.unified_connections.values().map(|c| c.bytes_sent).sum();
+        self.total_bytes_received = self.unified_connections.values().map(|c| c.bytes_received).sum();
+        self.active_flows = self.unified_connections.values().filter(|c| c.is_active).count();
+
+        // Clamp selected_unified to valid range
+        if self.selected_unified >= self.unified_connections.len() && !self.unified_connections.is_empty() {
+            self.selected_unified = self.unified_connections.len() - 1;
+        }
+    }
+
+    /// Get the selected unified connection
+    pub fn selected_unified_connection(&self) -> Option<&UnifiedConnection> {
+        self.unified_connections.get_index(self.selected_unified).map(|(_, v)| v)
+    }
+
+    /// Get the selected unified connection (mutable)
+    pub fn selected_unified_connection_mut(&mut self) -> Option<&mut UnifiedConnection> {
+        self.unified_connections.get_index_mut(self.selected_unified).map(|(_, v)| v)
+    }
+
+    /// Adjust unified scroll offset to keep selection visible
+    pub fn adjust_unified_scroll(&mut self, visible_rows: usize) {
+        if visible_rows == 0 {
+            return;
+        }
+        if self.selected_unified < self.unified_scroll_offset {
+            self.unified_scroll_offset = self.selected_unified;
+        }
+        if self.selected_unified >= self.unified_scroll_offset + visible_rows {
+            self.unified_scroll_offset = self.selected_unified.saturating_sub(visible_rows - 1);
+        }
+    }
+
+    /// Cycle to next unified connection sort mode
+    pub fn next_unified_sort(&mut self) {
+        self.unified_sort = match self.unified_sort {
+            ConnectionSort::Time => ConnectionSort::BytesTotal,
+            ConnectionSort::BytesTotal => ConnectionSort::Process,
+            ConnectionSort::Process => ConnectionSort::Destination,
+            ConnectionSort::Destination => ConnectionSort::Time,
+        };
+        // Note: IndexMap maintains insertion order by default
+        // For sorting, we'd need to rebuild the map - keeping simple for now
+        // by relying on insertion order (most recent at end, reversed for display)
+    }
+
+    /// Get unified connections as a sorted vector for display (most recent first by default)
+    pub fn get_unified_connections_sorted(&self) -> Vec<(&UnifiedConnectionKey, &UnifiedConnection)> {
+        let mut connections: Vec<_> = self.unified_connections.iter().collect();
+
+        match self.unified_sort {
+            ConnectionSort::Time => {
+                // Reverse for most recent first (IndexMap preserves insertion order)
+                connections.reverse();
+            }
+            ConnectionSort::BytesTotal => {
+                connections.sort_by(|(_, a), (_, b)| {
+                    (b.bytes_sent + b.bytes_received).cmp(&(a.bytes_sent + a.bytes_received))
+                });
+            }
+            ConnectionSort::Process => {
+                connections.sort_by(|(_, a), (_, b)| a.process_name.cmp(&b.process_name));
+            }
+            ConnectionSort::Destination => {
+                connections.sort_by(|(_, a), (_, b)| a.destination.cmp(&b.destination));
+            }
+        }
+
+        connections
+    }
+
+    // ===== CONNECTION GROUPING METHODS =====
+
+    /// Compute grouped connections by aggregating by (process_name, destination)
+    /// Like Little Snitch: shows what each app is talking to, merging TCP+UDP
+    pub fn compute_grouped_connections(&mut self) {
+        use std::collections::{HashMap, HashSet};
+
+        // Group by (process_name, destination) - ignoring port and protocol for grouping
+        // This merges TCP+UDP connections and different ports to same destination
+        let mut groups: HashMap<(String, String), GroupedConnection> = HashMap::new();
+        let mut pids_seen: HashMap<(String, String), HashSet<u32>> = HashMap::new();
+
+        for conn in self.unified_connections.values() {
+            // Normalize process name (strip numeric suffixes, lowercase for matching)
+            let process_key = conn.process_name.clone();
+            let dest_key = conn.destination.clone();
+            let key = (process_key.clone(), dest_key.clone());
+
+            // Track PIDs for this group
+            pids_seen.entry(key.clone())
+                .or_insert_with(HashSet::new)
+                .insert(conn.process_id);
+
+            if let Some(group) = groups.get_mut(&key) {
+                // Aggregate into existing group
+                group.connection_count += 1;
+                group.total_bytes_sent += conn.bytes_sent;
+                group.total_bytes_received += conn.bytes_received;
+                group.is_any_active = group.is_any_active || conn.is_active;
+
+                // Add port if not already present
+                if !group.ports.contains(&conn.remote_port) {
+                    group.ports.push(conn.remote_port);
+                }
+
+                // Add protocol if not already present
+                if !group.protocols.contains(&conn.protocol) {
+                    group.protocols.push(conn.protocol);
+                }
+
+                // Update auth status to most restrictive
+                group.auth_status = Self::most_restrictive_auth(group.auth_status, conn.auth_status);
+
+                // Keep earliest first_seen
+                if conn.first_seen < group.first_seen {
+                    group.first_seen = conn.first_seen.clone();
+                }
+            } else {
+                // Create new group
+                groups.insert(key, GroupedConnection {
+                    process_name: conn.process_name.clone(),
+                    destination: conn.destination.clone(),
+                    ports: vec![conn.remote_port],
+                    protocols: vec![conn.protocol],
+                    connection_count: 1,
+                    pid_count: 1, // Will be updated after
+                    total_bytes_sent: conn.bytes_sent,
+                    total_bytes_received: conn.bytes_received,
+                    first_seen: conn.first_seen.clone(),
+                    is_any_active: conn.is_active,
+                    auth_status: conn.auth_status,
+                });
+            }
+        }
+
+        // Update PID counts
+        for (key, group) in groups.iter_mut() {
+            if let Some(pids) = pids_seen.get(key) {
+                group.pid_count = pids.len();
+            }
+        }
+
+        // Convert to sorted vec
+        // Primary sort: by process name (alphabetical)
+        // Secondary sort: by total bytes (descending)
+        let mut grouped: Vec<GroupedConnection> = groups.into_values().collect();
+        grouped.sort_by(|a, b| {
+            // First by process name
+            match a.process_name.to_lowercase().cmp(&b.process_name.to_lowercase()) {
+                std::cmp::Ordering::Equal => {
+                    // Then by bytes (descending)
+                    (b.total_bytes_sent + b.total_bytes_received)
+                        .cmp(&(a.total_bytes_sent + a.total_bytes_received))
+                }
+                other => other,
+            }
+        });
+
+        self.grouped_connections = grouped;
+
+        // Reset selection if out of bounds
+        if self.selected_grouped >= self.grouped_connections.len() && !self.grouped_connections.is_empty() {
+            self.selected_grouped = self.grouped_connections.len() - 1;
+        }
+    }
+
+    /// Helper to determine most restrictive auth status
+    fn most_restrictive_auth(a: AuthStatus, b: AuthStatus) -> AuthStatus {
+        // DENY > PENDING > SILENT_ALLOW > AUTO > ALLOW
+        let priority = |status: AuthStatus| -> u8 {
+            match status {
+                AuthStatus::Deny => 5,
+                AuthStatus::Pending => 4,
+                AuthStatus::SilentAllow => 3,
+                AuthStatus::Auto => 2,
+                AuthStatus::Allow => 1,
+            }
+        };
+
+        if priority(a) >= priority(b) { a } else { b }
+    }
+
+    /// Toggle view mode and recompute if switching to grouped
+    pub fn toggle_view_mode(&mut self) {
+        self.view_mode = self.view_mode.toggle();
+        if self.view_mode == ViewMode::Grouped {
+            self.compute_grouped_connections();
+        }
+    }
+
+    /// Adjust grouped scroll offset to keep selection visible
+    pub fn adjust_grouped_scroll(&mut self, visible_rows: usize) {
+        if visible_rows == 0 {
+            return;
+        }
+        if self.selected_grouped < self.grouped_scroll_offset {
+            self.grouped_scroll_offset = self.selected_grouped;
+        }
+        if self.selected_grouped >= self.grouped_scroll_offset + visible_rows {
+            self.grouped_scroll_offset = self.selected_grouped.saturating_sub(visible_rows - 1);
+        }
+    }
+
+    /// Toggle info popup visibility
+    pub fn toggle_info_popup(&mut self) {
+        self.show_info_popup = !self.show_info_popup;
+    }
 }
 
 /// Identify system/network traffic based on port and address patterns
@@ -800,7 +1353,7 @@ fn identify_system_traffic(entry: &crate::driver::BandwidthEntry) -> String {
         _ => {}
     }
 
-    // Identify by address pattern
+    // IPv4 address patterns
     if remote_str.starts_with("224.") || remote_str.starts_with("239.") {
         return "System (multicast)".to_string();
     }
@@ -810,15 +1363,36 @@ fn identify_system_traffic(entry: &crate::driver::BandwidthEntry) -> String {
     if remote_str == "255.255.255.255" {
         return "System (broadcast)".to_string();
     }
-
-    // IPv6 multicast
-    if entry.is_ipv6 {
-        return "System (IPv6)".to_string();
+    if remote_str.starts_with("127.") {
+        return "localhost".to_string();
     }
 
-    // Localhost traffic
-    if remote_str.starts_with("127.") || remote_str == "::1" {
-        return "localhost".to_string();
+    // IPv6 address patterns
+    if entry.is_ipv6 {
+        // IPv6 loopback ::1
+        if remote_str == "::1" {
+            return "localhost (IPv6)".to_string();
+        }
+        // IPv6 link-local fe80::/10
+        if remote_str.starts_with("fe80:") || remote_str.starts_with("fe8") ||
+           remote_str.starts_with("fe9") || remote_str.starts_with("fea") ||
+           remote_str.starts_with("feb") {
+            return "System (IPv6 link-local)".to_string();
+        }
+        // IPv6 multicast ff00::/8
+        if remote_str.starts_with("ff") {
+            return "System (IPv6 multicast)".to_string();
+        }
+        // IPv6 unique local (fc00::/7 = fc or fd prefix)
+        if remote_str.starts_with("fc") || remote_str.starts_with("fd") {
+            return "System (IPv6 ULA)".to_string();
+        }
+        // IPv4-mapped IPv6 ::ffff:x.x.x.x
+        if remote_str.starts_with("::ffff:") {
+            return "System (IPv4-mapped)".to_string();
+        }
+        // Generic IPv6
+        return "System (IPv6)".to_string();
     }
 
     // Generic fallback

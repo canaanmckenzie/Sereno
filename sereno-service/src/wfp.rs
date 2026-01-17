@@ -403,15 +403,8 @@ impl WfpEngine {
             }
 
             // Add protocol condition if specified (skip for Any)
-            let protocol_value: u8;
             if let Some(proto) = filter.protocol {
-                if proto != Protocol::Any {
-                    protocol_value = match proto {
-                        Protocol::Tcp => 6,
-                        Protocol::Udp => 17,
-                        Protocol::Icmp => 1,
-                        Protocol::Any => unreachable!(),
-                    };
+                if let Some(protocol_value) = proto.protocol_number() {
                     conditions.push(FWPM_FILTER_CONDITION0 {
                         fieldKey: FWPM_CONDITION_IP_PROTOCOL,
                         matchType: FWP_MATCH_EQUAL,
