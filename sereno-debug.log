@@ -7216,3 +7216,65 @@ b81d:c554:0) pid=4
 [17:01:56] TLM: 64 flows, sent=19699, recv=162023
 [17:01:57] TLM: 64 flows, sent=19699, recv=162143
 [17:01:58] TLM: 64 flows, sent=19699, recv=162175
+[17:01:59] TLM: 64 flows, sent=19699, recv=162175
+[17:02:00] TLM: 64 flows, sent=19699, recv=163080
+[17:02:01] TLM: 64 flows, sent=19699, recv=163264
+[17:02:02] TLM: 64 flows, sent=19699, recv=163264
+[17:02:03] TLM: 64 flows, sent=19699, recv=163384
+[17:02:04] TLM: 64 flows, sent=19699, recv=163416
+[17:02:05] TLM: 64 flows, sent=19699, recv=164201
+[17:02:06] TLM: 64 flows, sent=19699, recv=164353
+[17:02:07] Got request 23 from Code.exe (11.173.189.20:443) pid=10264
+[17:02:07] Sent Allow for request 23 (ASK)
+[17:02:07] Got request 24 from Code.exe (11.173.189.20:443) pid=10264
+[17:02:07] Sent Allow for request 24 (ASK)
+[17:02:07] TLM: 64 flows, sent=19699, recv=164353
+[17:02:07] Got request 25 from Code.exe (11.173.189.20:443) pid=10264
+[17:02:07] Sent Allow for request 25 (ASK)
+[17:02:08] TLM: 64 flows, sent=19699, recv=164353
+[17:02:09] TLM: 64 flows, sent=19699, recv=164505
+[17:02:10] Got request 26 from Code.exe (11.173.189.20:443) pid=10264
+[17:02:10] Sent Allow for request 26 (ASK)
+[17:02:10] TLM: 64 flows, sent=19699, recv=164505
+[17:02:10] Got request 27 from Code.exe (11.173.189.20:443) pid=10264
+[17:02:10] Sent Allow for request 27 (ASK)
+[17:02:11] TLM: 64 flows, sent=19699, recv=164505
+[17:02:12] TLM: 64 flows, sent=19699, recv=164625
+[17:02:13] TLM: 64 flows, sent=19699, recv=164657
+[17:02:14] TLM: 64 flows, sent=19699, recv=164657
+[17:02:15] TLM: 64 flows, sent=19699, recv=164777
+[17:02:16] TLM: 64 flows, sent=19699, recv=164809
+[17:02:17] TLM: 64 flows, sent=19699, recv=165594
+[17:02:18] TLM: 64 flows, sent=19699, recv=165746
+[17:02:20] TLM: 64 flows, sent=19699, recv=165746
+[17:02:20] Got request 28 from pwsh.exe (59.73.179.52:443) pid=6800
+[17:02:20] Sent Allow for request 28 (ASK)
+[17:02:21] TLM: 64 flows, sent=19699, recv=165746
+[17:02:22] TLM: 64 flows, sent=19699, recv=166683
+[17:02:23] TLM: 64 flows, sent=19699, recv=166683
+[17:02:24] TLM: 64 flows, sent=19699, recv=166683
+[17:02:25] TLM: 64 flows, sent=19699, recv=166835
+[17:02:26] TLM: 64 flows, sent=19699, recv=166835
+[17:02:26] Got request 29 from git-remote-https.exe (4.114.82.140:443) pid=9712
+[17:02:26] Sent Allow for request 29 (ASK)
+[17:02:27] TLM: 64 flows, sent=19699, recv=167740
+[17:02:28] TLM: 64 flows, sent=19699, recv=167772
+[17:02:29] TLM: 64 flows, sent=19699, recv=167772
+[17:02:30] TLM: 64 flows, sent=19699, recv=167892
+[17:02:31] TLM: 64 flows, sent=19699, recv=168319
+[17:02:32] TLM: 64 flows, sent=19720, recv=168319
+[17:02:33] TLM: 64 flows, sent=19720, recv=168439
+[17:02:34] TLM: 64 flows, sent=19720, recv=168471
+[17:02:35] TLM: 64 flows, sent=19720, recv=168471
+[17:02:36] TLM: 64 flows, sent=19720, recv=168623
+[17:02:36] Got request 30 from node.exe (2607:6bc0::10:443) pid=11400
+[17:02:36] Sent Allow for request 30 (ALLOW)
+[17:02:37] TLM: 64 flows, sent=19720, recv=168623
+[17:02:38] TLM: 64 flows, sent=19720, recv=168623
+[17:02:40] TLM: 64 flows, sent=19760, recv=169560
+[17:02:41] TLM: 64 flows, sent=19760, recv=169560
+[17:02:42] TLM: 64 flows, sent=19760, recv=169560
+[17:02:43] TLM: 64 flows, sent=19760, recv=169712
+[17:02:44] TLM: 64 flows, sent=19760, recv=170497
+[17:02:45] TLM: 64 flows, sent=19760, recv=170497
+[17:02:46] TLM: 64 flows, sent=19760, recv=170649
