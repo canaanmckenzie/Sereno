@@ -492,9 +492,68 @@ fn format_bytes_short(bytes: u64) -> String {
     }
 }
 
+/// Extract a human-readable target summary from rule conditions
+fn format_rule_target(rule: &sereno_core::types::Rule) -> String {
+    use sereno_core::types::{Condition, DomainPattern, IpMatcher, PortMatcher};
+
+    let mut parts = Vec::new();
+
+    for condition in &rule.conditions {
+        match condition {
+            Condition::Domain { patterns } => {
+                for pattern in patterns {
+                    let domain_str = match pattern {
+                        DomainPattern::Exact { value } => value.clone(),
+                        DomainPattern::Wildcard { pattern } => pattern.clone(),
+                        DomainPattern::Regex { pattern } => format!("/{}/", pattern),
+                    };
+                    parts.push(domain_str);
+                }
+            }
+            Condition::RemotePort { matcher } => {
+                let port_str = match matcher {
+                    PortMatcher::Single { port } => format!(":{}", port),
+                    PortMatcher::Range { start, end } => format!(":{}-{}", start, end),
+                    PortMatcher::List { ports } => {
+                        let ps: Vec<String> = ports.iter().map(|p| p.to_string()).collect();
+                        format!(":{}", ps.join(","))
+                    }
+                    PortMatcher::Any => ":*".to_string(),
+                };
+                parts.push(port_str);
+            }
+            Condition::RemoteAddress { matcher } => {
+                let ip_str = match matcher {
+                    IpMatcher::Single { address } => format!("IP:{}", address),
+                    IpMatcher::Cidr { network } => format!("IP:{}", network),
+                    IpMatcher::List { addresses } => format!("IP:{{{}}}", addresses.len()),
+                    IpMatcher::Any => "IP:*".to_string(),
+                };
+                parts.push(ip_str);
+            }
+            Condition::ProcessPath { pattern } => {
+                parts.push(format!("path:{}", pattern));
+            }
+            Condition::ProcessName { pattern } => {
+                parts.push(format!("proc:{}", pattern));
+            }
+            Condition::Protocol { protocol } => {
+                parts.push(format!("{:?}", protocol));
+            }
+            _ => {}
+        }
+    }
+
+    if parts.is_empty() {
+        "Any".to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 /// Draw the Rules tab
 fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
-    let header_cells = ["Sel", "Name", "Action", "Enabled", "Priority", "Hits"]
+    let header_cells = ["", "Action", "Target", "Name", "Pri", "Hits"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
 
@@ -509,12 +568,16 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().bg(Color::Blue).fg(Color::White)
         } else if multi_selected {
             Style::default().bg(Color::DarkGray).fg(Color::White)
+        } else if !rule.enabled {
+            Style::default().fg(Color::DarkGray)
         } else {
             Style::default()
         };
 
         let action_style = if cursor_selected || multi_selected {
             Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        } else if !rule.enabled {
+            Style::default().fg(Color::DarkGray)
         } else {
             match format!("{}", rule.action).as_str() {
                 "Allow" => Style::default().fg(Color::Green),
@@ -523,22 +586,21 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
             }
         };
 
-        let enabled_style = if cursor_selected || multi_selected {
-            Style::default().fg(Color::White)
-        } else if rule.enabled {
-            Style::default().fg(Color::Green)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-
         // Selection indicator: [x] for selected, [ ] for not selected
         let select_indicator = if multi_selected { "[x]" } else { "[ ]" };
 
+        // Format the target conditions
+        let target = format_rule_target(rule);
+
+        // Enabled indicator merged with action display
+        let enabled_indicator = if rule.enabled { "" } else { "(off) " };
+        let action_display = format!("{}{}", enabled_indicator, rule.action);
+
         Row::new(vec![
             Cell::from(select_indicator),
+            Cell::from(action_display).style(action_style),
+            Cell::from(target),
             Cell::from(rule.name.clone()),
-            Cell::from(format!("{}", rule.action)).style(action_style),
-            Cell::from(if rule.enabled { "Yes" } else { "No" }).style(enabled_style),
             Cell::from(format!("{}", rule.priority)),
             Cell::from(format!("{}", rule.hit_count)),
         ])
@@ -557,11 +619,11 @@ fn draw_rules_tab(frame: &mut Frame, app: &App, area: Rect) {
         rows,
         [
             Constraint::Length(3),  // Sel (checkbox)
-            Constraint::Min(20),    // Name
-            Constraint::Length(8),  // Action
-            Constraint::Length(8),  // Enabled
-            Constraint::Length(10), // Priority
-            Constraint::Length(8),  // Hits
+            Constraint::Length(12), // Action (with disabled indicator)
+            Constraint::Min(25),    // Target (domain, port, IP, etc.)
+            Constraint::Length(20), // Name
+            Constraint::Length(4),  // Priority
+            Constraint::Length(5),  // Hits
         ],
     )
     .header(header)

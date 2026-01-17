@@ -1489,6 +1489,41 @@ SerenoClassifyConnect(
     }
 
     // ============================================================
+    // ALE-LAYER DOMAIN BLOCKING (Zero-Packet Block)
+    //
+    // If we resolved the domain from DNS cache and it's in the blocked list,
+    // block HERE at ALE layer - no TCP handshake, no packets sent at all.
+    // This is more efficient than waiting for Stream layer SNI inspection.
+    // ============================================================
+    if (pendingRequest->ConnectionInfo.DomainNameLength > 0) {
+        if (SerenoBlockedDomainCheck(deviceContext,
+                pendingRequest->ConnectionInfo.DomainName,
+                pendingRequest->ConnectionInfo.DomainNameLength)) {
+            SERENO_DBG("BLOCKED at ALE (DNS cache): %S port=%u",
+                pendingRequest->ConnectionInfo.DomainName, remotePort);
+
+            // Cache the block verdict so re-auth and future connections are fast
+            SerenoVerdictCacheAdd(
+                deviceContext,
+                (UINT32)(ULONG_PTR)processId,
+                isIPv6,
+                remoteAddrV4,
+                isIPv6 ? remoteAddrV6 : NULL,
+                remotePort,
+                pendingRequest->ConnectionInfo.DomainName,
+                pendingRequest->ConnectionInfo.DomainNameLength,
+                SERENO_VERDICT_BLOCK
+            );
+
+            SerenoFreePendingRequest(pendingRequest);
+            ClassifyOut->actionType = FWP_ACTION_BLOCK;
+            ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+            InterlockedIncrement64((LONG64*)&deviceContext->Stats.BlockedConnections);
+            return;
+        }
+    }
+
+    // ============================================================
     // ASYNC PENDING MODEL (Production - Like Little Snitch)
     //
     // We use FwpsPendOperation0 to hold the connection WITHOUT blocking
@@ -2757,18 +2792,27 @@ SerenoClassifyStream(
 
             // Phase 2: Check if domain is in blocked list
             if (SerenoBlockedDomainCheck(deviceContext, domainBuffer, domainLength)) {
-                SERENO_DBG("BLOCKED by SNI: %S", domainBuffer);
+                SERENO_DBG("BLOCKED by SNI: %S (HOLDING ClientHello - server won't see domain)", domainBuffer);
 
-                // Abort the TCP flow - this kills the connection
+                // HOLD CLIENTHELLO PATTERN:
+                // 1. Consume the data (countBytesEnforced) - prevents forwarding
+                // 2. Block the action - tells WFP not to send
+                // 3. Abort the flow - terminates the TCP connection
+                // Result: Server NEVER sees the ClientHello with our SNI
+
+                // Consume all the data - this is the "hold" part
+                streamPacket->countBytesEnforced = dataLength;
+
+                // Set stream action to drop the connection
+                streamPacket->streamAction = FWPS_STREAM_ACTION_DROP_CONNECTION;
+                ClassifyOut->actionType = FWP_ACTION_BLOCK;
+                ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+
+                // Abort the TCP flow - this terminates the connection
                 if (InMetaValues->flowHandle) {
                     NTSTATUS abortStatus = FwpsFlowAbort0(InMetaValues->flowHandle);
                     SERENO_DBG("FwpsFlowAbort0 returned: 0x%08X", abortStatus);
                 }
-
-                // Also set stream action to drop
-                streamPacket->streamAction = FWPS_STREAM_ACTION_DROP_CONNECTION;
-                ClassifyOut->actionType = FWP_ACTION_BLOCK;
-                ClassifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
 
                 // Add to verdict cache so future connections are blocked at ALE layer
                 // Use process ID 0 to match any process going to this domain

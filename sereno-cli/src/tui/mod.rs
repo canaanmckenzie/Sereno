@@ -679,136 +679,163 @@ async fn run_event_loop(
                                     }
                                 }
                                 EventResult::ToggleConnection { process_name, destination, port, current_action } => {
-                                    // Create a rule with the opposite action
+                                    // Little Snitch-style toggle behavior:
+                                    // - DENY → ALLOW: Delete/disable the blocking rule (default is allow)
+                                    // - ALLOW → DENY: Create a deny rule
                                     use sereno_core::types::{Action, Condition, DomainPattern, PortMatcher};
 
-                                    let new_action = if current_action == "DENY" {
-                                        Action::Allow
-                                    } else {
-                                        Action::Deny
-                                    };
-
-                                    let action_str = if current_action == "DENY" { "ALLOW" } else { "DENY" };
-
-                                    // Check for existing matching rules (deduplication + conflict detection)
-                                    match find_matching_rule(&app.rules, &destination, port, new_action) {
-                                        ExistingRuleMatch::SameAction { rule_id, rule_name } => {
-                                            // Rule with same action already exists
-                                            // Check if it's disabled - if so, enable it
-                                            let is_disabled = app.rules.iter()
-                                                .find(|r| r.id == rule_id)
-                                                .map(|r| !r.enabled)
-                                                .unwrap_or(false);
-
-                                            if is_disabled {
-                                                // Enable the existing rule instead of creating duplicate
-                                                match engine.set_rule_enabled(&rule_id, true) {
+                                    if current_action == "DENY" {
+                                        // Toggling DENY → ALLOW: Find and remove the deny rule
+                                        // (no need to create an explicit allow - default is allow)
+                                        match find_matching_rule(&app.rules, &destination, port, Action::Deny) {
+                                            ExistingRuleMatch::SameAction { rule_id, rule_name } => {
+                                                // Found the deny rule - delete it
+                                                match engine.remove_rule(&rule_id) {
                                                     Ok(()) => {
                                                         app.rules = engine.rules();
                                                         clear_cache_flag.store(true, Ordering::Relaxed);
-                                                        app.log(format!("Enabled existing rule: {}", rule_name));
+                                                        app.log(format!("Removed deny rule: {}", rule_name));
 
                                                         if let Some(conn) = app.connections.get_mut(app.selected_connection) {
-                                                            conn.action = action_str.to_string();
-                                                            conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                                            conn.action = "ALLOW".to_string();
+                                                            conn.rule_name = None;
                                                         }
 
-                                                        if new_action == Action::Deny && driver_handle.is_some() {
+                                                        // Sync to kernel (removed a deny)
+                                                        if driver_handle.is_some() {
                                                             sync_debounce.lock().unwrap().request_sync();
                                                         }
                                                     }
                                                     Err(e) => {
-                                                        app.log(format!("Failed to enable rule: {}", e));
+                                                        app.log(format!("Failed to remove rule: {}", e));
                                                     }
                                                 }
-                                            } else {
-                                                // Already exists and enabled - just log
-                                                app.log(format!("Rule already exists: {}", rule_name));
-
+                                            }
+                                            _ => {
+                                                // No deny rule found - just update UI (might be stale state)
+                                                app.log("No deny rule found to remove".to_string());
                                                 if let Some(conn) = app.connections.get_mut(app.selected_connection) {
-                                                    conn.action = action_str.to_string();
-                                                    conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                                    conn.action = "ALLOW".to_string();
+                                                    conn.rule_name = None;
                                                 }
                                             }
                                         }
-                                        ExistingRuleMatch::ConflictingAction { rule_id, rule_name } => {
-                                            // Conflicting rule exists - disable it first, then create new
-                                            app.log(format!("Disabling conflicting rule: {}", rule_name));
+                                    } else {
+                                        // Toggling ALLOW → DENY: Create or enable a deny rule
+                                        match find_matching_rule(&app.rules, &destination, port, Action::Deny) {
+                                            ExistingRuleMatch::SameAction { rule_id, rule_name } => {
+                                                // Deny rule already exists - check if disabled
+                                                let is_disabled = app.rules.iter()
+                                                    .find(|r| r.id == rule_id)
+                                                    .map(|r| !r.enabled)
+                                                    .unwrap_or(false);
 
-                                            if let Err(e) = engine.set_rule_enabled(&rule_id, false) {
-                                                app.log(format!("Warning: Failed to disable conflicting rule: {}", e));
-                                            }
+                                                if is_disabled {
+                                                    // Enable existing deny rule
+                                                    match engine.set_rule_enabled(&rule_id, true) {
+                                                        Ok(()) => {
+                                                            app.rules = engine.rules();
+                                                            clear_cache_flag.store(true, Ordering::Relaxed);
+                                                            app.log(format!("Enabled deny rule: {}", rule_name));
 
-                                            // Now create the new rule
-                                            let mut conditions = Vec::new();
-                                            let is_domain = destination.chars().any(|c| c.is_alphabetic());
-                                            if is_domain {
-                                                conditions.push(Condition::Domain {
-                                                    patterns: vec![DomainPattern::Exact { value: destination.clone() }],
-                                                });
-                                            }
-                                            conditions.push(Condition::RemotePort {
-                                                matcher: PortMatcher::Single { port },
-                                            });
+                                                            if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                                conn.action = "DENY".to_string();
+                                                                conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                                            }
 
-                                            let new_rule_name = format!("{} {} ({}:{})", action_str, process_name, destination, port);
-                                            let mut rule = Rule::new(new_rule_name.clone(), new_action, conditions);
-                                            rule.priority = 50;
-
-                                            match engine.add_rule(rule) {
-                                                Ok(()) => {
-                                                    app.rules = engine.rules();
-                                                    clear_cache_flag.store(true, Ordering::Relaxed);
-                                                    app.log(format!("Created rule: {}", new_rule_name));
-
-                                                    if let Some(conn) = app.connections.get_mut(app.selected_connection) {
-                                                        conn.action = action_str.to_string();
-                                                        conn.rule_name = Some(new_rule_name[..20.min(new_rule_name.len())].to_string());
+                                                            if driver_handle.is_some() {
+                                                                sync_debounce.lock().unwrap().request_sync();
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.log(format!("Failed to enable rule: {}", e));
+                                                        }
                                                     }
-
-                                                    if new_action == Action::Deny && driver_handle.is_some() {
-                                                        sync_debounce.lock().unwrap().request_sync();
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    app.log(format!("Failed to create rule: {}", e));
-                                                }
-                                            }
-                                        }
-                                        ExistingRuleMatch::None => {
-                                            // No existing rule - create new one
-                                            let mut conditions = Vec::new();
-                                            let is_domain = destination.chars().any(|c| c.is_alphabetic());
-                                            if is_domain {
-                                                conditions.push(Condition::Domain {
-                                                    patterns: vec![DomainPattern::Exact { value: destination.clone() }],
-                                                });
-                                            }
-                                            conditions.push(Condition::RemotePort {
-                                                matcher: PortMatcher::Single { port },
-                                            });
-
-                                            let rule_name = format!("{} {} ({}:{})", action_str, process_name, destination, port);
-                                            let mut rule = Rule::new(rule_name.clone(), new_action, conditions);
-                                            rule.priority = 50;
-
-                                            match engine.add_rule(rule) {
-                                                Ok(()) => {
-                                                    app.rules = engine.rules();
-                                                    clear_cache_flag.store(true, Ordering::Relaxed);
-                                                    app.log(format!("Created rule: {}", rule_name));
-
+                                                } else {
+                                                    // Already blocked by this rule
+                                                    app.log(format!("Already blocked by: {}", rule_name));
                                                     if let Some(conn) = app.connections.get_mut(app.selected_connection) {
-                                                        conn.action = action_str.to_string();
+                                                        conn.action = "DENY".to_string();
                                                         conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
                                                     }
+                                                }
+                                            }
+                                            ExistingRuleMatch::ConflictingAction { rule_id, rule_name } => {
+                                                // Found an ALLOW rule - disable it and create deny
+                                                app.log(format!("Disabling allow rule: {}", rule_name));
+                                                let _ = engine.set_rule_enabled(&rule_id, false);
 
-                                                    if new_action == Action::Deny && driver_handle.is_some() {
-                                                        sync_debounce.lock().unwrap().request_sync();
+                                                // Create new deny rule
+                                                let mut conditions = Vec::new();
+                                                let is_domain = destination.chars().any(|c| c.is_alphabetic());
+                                                if is_domain {
+                                                    conditions.push(Condition::Domain {
+                                                        patterns: vec![DomainPattern::Exact { value: destination.clone() }],
+                                                    });
+                                                }
+                                                conditions.push(Condition::RemotePort {
+                                                    matcher: PortMatcher::Single { port },
+                                                });
+
+                                                let new_rule_name = format!("Block {} ({}:{})", process_name, destination, port);
+                                                let mut rule = Rule::new(new_rule_name.clone(), Action::Deny, conditions);
+                                                rule.priority = 50;
+
+                                                match engine.add_rule(rule) {
+                                                    Ok(()) => {
+                                                        app.rules = engine.rules();
+                                                        clear_cache_flag.store(true, Ordering::Relaxed);
+                                                        app.log(format!("Created: {}", new_rule_name));
+
+                                                        if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                            conn.action = "DENY".to_string();
+                                                            conn.rule_name = Some(new_rule_name[..20.min(new_rule_name.len())].to_string());
+                                                        }
+
+                                                        if driver_handle.is_some() {
+                                                            sync_debounce.lock().unwrap().request_sync();
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app.log(format!("Failed to create rule: {}", e));
                                                     }
                                                 }
-                                                Err(e) => {
-                                                    app.log(format!("Failed to create rule: {}", e));
+                                            }
+                                            ExistingRuleMatch::None => {
+                                                // No existing rule - create new deny rule
+                                                let mut conditions = Vec::new();
+                                                let is_domain = destination.chars().any(|c| c.is_alphabetic());
+                                                if is_domain {
+                                                    conditions.push(Condition::Domain {
+                                                        patterns: vec![DomainPattern::Exact { value: destination.clone() }],
+                                                    });
+                                                }
+                                                conditions.push(Condition::RemotePort {
+                                                    matcher: PortMatcher::Single { port },
+                                                });
+
+                                                let rule_name = format!("Block {} ({}:{})", process_name, destination, port);
+                                                let mut rule = Rule::new(rule_name.clone(), Action::Deny, conditions);
+                                                rule.priority = 50;
+
+                                                match engine.add_rule(rule) {
+                                                    Ok(()) => {
+                                                        app.rules = engine.rules();
+                                                        clear_cache_flag.store(true, Ordering::Relaxed);
+                                                        app.log(format!("Created: {}", rule_name));
+
+                                                        if let Some(conn) = app.connections.get_mut(app.selected_connection) {
+                                                            conn.action = "DENY".to_string();
+                                                            conn.rule_name = Some(rule_name[..20.min(rule_name.len())].to_string());
+                                                        }
+
+                                                        if driver_handle.is_some() {
+                                                            sync_debounce.lock().unwrap().request_sync();
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app.log(format!("Failed to create rule: {}", e));
+                                                    }
                                                 }
                                             }
                                         }
