@@ -9,3 +9,24 @@ DBGVIEW_GUIDE.md
 .claude/
 reboot_recovery.md
 sereno-debug.log
+certs_out.txt
+*.cer
+*.pfx
+*.pvk
+
+# Desktop app
+node_modules/
+dist/
+*.local
+
+# Build artifacts
+obj/
+bin/
+*.obj
+*.pdb
+*.tlog
+
+# Log files
+debug.log
+*-debug.log
+sereno-debug.log

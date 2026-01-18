@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-sereno-border;
+  }
+
+  body {
+    @apply bg-sereno-bg text-sereno-text font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom scrollbar - sleek and minimal */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-sereno-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-sereno-muted;
+  }
+
+  /* Disable text selection on UI elements */
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-3 py-1.5 rounded-md font-medium text-sm transition-colors;
+    @apply focus:outline-none focus:ring-2 focus:ring-sereno-accent focus:ring-offset-2 focus:ring-offset-sereno-bg;
+  }
+
+  .btn-primary {
+    @apply btn bg-sereno-accent text-white hover:bg-blue-600;
+  }
+
+  .btn-secondary {
+    @apply btn bg-sereno-surface text-sereno-text hover:bg-sereno-hover border border-sereno-border;
+  }
+
+  .btn-danger {
+    @apply btn bg-sereno-danger text-white hover:bg-red-600;
+  }
+
+  .btn-success {
+    @apply btn bg-sereno-success text-white hover:bg-green-600;
+  }
+
+  .input {
+    @apply px-3 py-2 rounded-md text-sm transition-colors;
+    @apply bg-sereno-surface border border-sereno-border;
+    @apply focus:outline-none focus:ring-2 focus:ring-sereno-accent focus:border-transparent;
+    @apply placeholder:text-sereno-muted;
+  }
+
+  .card {
+    @apply bg-sereno-surface border border-sereno-border rounded-lg;
+  }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot-success {
+    @apply status-dot bg-sereno-success;
+  }
+
+  .status-dot-danger {
+    @apply status-dot bg-sereno-danger;
+  }
+
+  .status-dot-warning {
+    @apply status-dot bg-sereno-warning;
+  }
+}

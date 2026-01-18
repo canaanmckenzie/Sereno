@@ -1,0 +1,45 @@
+[package]
+name = "sereno-desktop"
+version = "0.1.0"
+description = "Sereno Network Firewall"
+authors = ["Sereno"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+embed-resource = "3"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+
+# Link to sereno-core for driver communication
+sereno-core = { path = "../../sereno-core" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Services",
+    "Win32_Security",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

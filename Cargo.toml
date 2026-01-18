@@ -4,6 +4,7 @@ members = [
     "sereno-core",
     "sereno-cli",
     "sereno-service",
+    "sereno-desktop/src-tauri",
 ]
 
 [workspace.package]
