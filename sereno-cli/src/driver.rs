@@ -181,8 +181,10 @@ mod windows_impl {
                     IpAddr::V6(Ipv6Addr::from(remote_v6)),
                 )
             } else {
-                let local_bytes = local_v4.to_be_bytes();
-                let remote_bytes = remote_v4.to_be_bytes();
+                // WFP provides IPs in network byte order stored in u32
+                // Use to_ne_bytes() to read bytes in memory order (preserves network byte order)
+                let local_bytes = local_v4.to_ne_bytes();
+                let remote_bytes = remote_v4.to_ne_bytes();
                 (
                     IpAddr::V4(Ipv4Addr::new(local_bytes[0], local_bytes[1], local_bytes[2], local_bytes[3])),
                     IpAddr::V4(Ipv4Addr::new(remote_bytes[0], remote_bytes[1], remote_bytes[2], remote_bytes[3])),
@@ -337,8 +339,10 @@ mod windows_impl {
                     IpAddr::V6(Ipv6Addr::from(remote_v6)),
                 )
             } else {
-                let local_bytes = local_v4.to_be_bytes();
-                let remote_bytes = remote_v4.to_be_bytes();
+                // WFP provides IPs in network byte order stored in u32
+                // Use to_ne_bytes() to read bytes in memory order (preserves network byte order)
+                let local_bytes = local_v4.to_ne_bytes();
+                let remote_bytes = remote_v4.to_ne_bytes();
                 (
                     IpAddr::V4(Ipv4Addr::new(local_bytes[0], local_bytes[1], local_bytes[2], local_bytes[3])),
                     IpAddr::V4(Ipv4Addr::new(remote_bytes[0], remote_bytes[1], remote_bytes[2], remote_bytes[3])),
@@ -385,9 +389,10 @@ mod windows_impl {
                 // IPv6 addresses not stored in uint32 - use placeholder
                 (IpAddr::V4(Ipv4Addr::UNSPECIFIED), IpAddr::V4(Ipv4Addr::UNSPECIFIED))
             } else {
-                // TLM stores IPs - extract bytes in big-endian order for correct display
-                let local_bytes = local_v4.to_be_bytes();
-                let remote_bytes = remote_v4.to_be_bytes();
+                // WFP provides IPs in network byte order stored in u32
+                // Use to_ne_bytes() to read bytes in memory order (preserves network byte order)
+                let local_bytes = local_v4.to_ne_bytes();
+                let remote_bytes = remote_v4.to_ne_bytes();
                 (
                     IpAddr::V4(Ipv4Addr::new(local_bytes[0], local_bytes[1], local_bytes[2], local_bytes[3])),
                     IpAddr::V4(Ipv4Addr::new(remote_bytes[0], remote_bytes[1], remote_bytes[2], remote_bytes[3])),

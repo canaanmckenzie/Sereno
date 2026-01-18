@@ -466,6 +466,56 @@ impl Mode {
     }
 }
 
+/// Connection filters for the Connections tab
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConnectionFilters {
+    /// Hide localhost (127.x.x.x) connections
+    pub hide_localhost: bool,
+    /// Hide System process (PID 0 or "System")
+    pub hide_system: bool,
+    /// Hide inactive/closed connections
+    pub hide_inactive: bool,
+    /// Hide 0.0.0.0 destination connections
+    pub hide_zero_addr: bool,
+}
+
+impl ConnectionFilters {
+    /// Labels for the filter bar
+    pub const LABELS: &'static [&'static str] = &["Localhost", "System", "Inactive", "0.0.0.0"];
+
+    /// Get the state of filter at index
+    pub fn get(&self, index: usize) -> bool {
+        match index {
+            0 => self.hide_localhost,
+            1 => self.hide_system,
+            2 => self.hide_inactive,
+            3 => self.hide_zero_addr,
+            _ => false,
+        }
+    }
+
+    /// Toggle filter at index
+    pub fn toggle(&mut self, index: usize) {
+        match index {
+            0 => self.hide_localhost = !self.hide_localhost,
+            1 => self.hide_system = !self.hide_system,
+            2 => self.hide_inactive = !self.hide_inactive,
+            3 => self.hide_zero_addr = !self.hide_zero_addr,
+            _ => {}
+        }
+    }
+
+    /// Number of filters
+    pub fn count() -> usize {
+        4
+    }
+
+    /// Check if any filter is active
+    pub fn any_active(&self) -> bool {
+        self.hide_localhost || self.hide_system || self.hide_inactive || self.hide_zero_addr
+    }
+}
+
 /// A connection event displayed in the monitor
 #[derive(Debug, Clone)]
 pub struct ConnectionEvent {
@@ -624,6 +674,27 @@ pub struct App {
 
     /// Show info popup for selected connection
     pub show_info_popup: bool,
+
+    // ===== FILTERS =====
+
+    /// Connection filters (hide localhost, system, inactive, 0.0.0.0)
+    pub filters: ConnectionFilters,
+
+    /// Currently selected filter index (for F key cycling)
+    pub filter_index: usize,
+
+    // ===== SEARCH =====
+
+    /// Search query (empty = no search active)
+    pub search_query: String,
+
+    /// Is search input mode active (/ key pressed)
+    pub search_active: bool,
+
+    // ===== HELP =====
+
+    /// Show help overlay (? key)
+    pub show_help: bool,
 }
 
 impl Default for App {
@@ -673,6 +744,14 @@ impl Default for App {
             grouped_scroll_offset: 0,
             // Info popup
             show_info_popup: false,
+            // Filters
+            filters: ConnectionFilters::default(),
+            filter_index: 0,
+            // Search
+            search_query: String::new(),
+            search_active: false,
+            // Help
+            show_help: false,
         }
     }
 }
@@ -1332,6 +1411,172 @@ impl App {
     /// Toggle info popup visibility
     pub fn toggle_info_popup(&mut self) {
         self.show_info_popup = !self.show_info_popup;
+    }
+
+    // ===== FILTER METHODS =====
+
+    /// Cycle to next filter in the filter bar
+    pub fn next_filter(&mut self) {
+        self.filter_index = (self.filter_index + 1) % ConnectionFilters::count();
+    }
+
+    /// Cycle to previous filter in the filter bar
+    pub fn prev_filter(&mut self) {
+        if self.filter_index == 0 {
+            self.filter_index = ConnectionFilters::count() - 1;
+        } else {
+            self.filter_index -= 1;
+        }
+    }
+
+    /// Toggle the currently selected filter
+    pub fn toggle_current_filter(&mut self) {
+        self.filters.toggle(self.filter_index);
+        // Recompute grouped connections if in grouped view (filters affect grouping)
+        if self.view_mode == ViewMode::Grouped {
+            self.compute_grouped_connections();
+        }
+    }
+
+    /// Check if a unified connection should be shown based on current filters and search
+    pub fn should_show_connection(&self, conn: &UnifiedConnection) -> bool {
+        // Check search filter first (most common operation)
+        if !self.matches_search(conn) {
+            return false;
+        }
+
+        // Check localhost filter
+        if self.filters.hide_localhost {
+            let remote = conn.remote_address.to_string();
+            if remote.starts_with("127.") || remote == "::1" {
+                return false;
+            }
+        }
+
+        // Check system filter
+        // PID 0 = unknown/TLM-only, PID 4 = Windows kernel (System)
+        if self.filters.hide_system {
+            let name = conn.process_name.trim().to_lowercase();
+            if conn.process_id == 0
+                || conn.process_id == 4
+                || name == "system"
+                || name.starts_with("system ")
+                || name.starts_with("svchost")
+            {
+                return false;
+            }
+        }
+
+        // Check inactive filter
+        if self.filters.hide_inactive && !conn.is_active {
+            return false;
+        }
+
+        // Check zero address filter
+        if self.filters.hide_zero_addr {
+            let remote = conn.remote_address.to_string();
+            if remote == "0.0.0.0" || remote == "::" {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Check if a grouped connection should be shown based on current filters and search
+    pub fn should_show_grouped(&self, group: &GroupedConnection) -> bool {
+        // Check search filter first
+        if !self.matches_search_grouped(group) {
+            return false;
+        }
+
+        // Check localhost filter
+        if self.filters.hide_localhost {
+            if group.destination.starts_with("127.") || group.destination == "::1" {
+                return false;
+            }
+        }
+
+        // Check system filter
+        // Hides System (kernel) and svchost processes
+        if self.filters.hide_system {
+            let name = group.process_name.trim().to_lowercase();
+            if name == "system"
+                || name.starts_with("system ")
+                || name.starts_with("svchost")
+            {
+                return false;
+            }
+        }
+
+        // Check inactive filter
+        if self.filters.hide_inactive && !group.is_any_active {
+            return false;
+        }
+
+        // Check zero address filter
+        if self.filters.hide_zero_addr {
+            if group.destination == "0.0.0.0" || group.destination == "::" {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Get filtered unified connections for display
+    pub fn get_filtered_connections(&self) -> Vec<(&UnifiedConnectionKey, &UnifiedConnection)> {
+        self.get_unified_connections_sorted()
+            .into_iter()
+            .filter(|(_, conn)| self.should_show_connection(conn))
+            .collect()
+    }
+
+    /// Get filtered grouped connections for display
+    pub fn get_filtered_grouped(&self) -> Vec<&GroupedConnection> {
+        self.grouped_connections
+            .iter()
+            .filter(|g| self.should_show_grouped(g))
+            .collect()
+    }
+
+    // ===== SEARCH METHODS =====
+
+    /// Check if a connection matches the search query
+    pub fn matches_search(&self, conn: &UnifiedConnection) -> bool {
+        if self.search_query.is_empty() {
+            return true;
+        }
+        let query = self.search_query.to_lowercase();
+        // Match against process name, destination, IP, or port
+        conn.process_name.to_lowercase().contains(&query)
+            || conn.destination.to_lowercase().contains(&query)
+            || conn.remote_address.to_string().contains(&query)
+            || conn.remote_port.to_string().contains(&query)
+            || conn.local_port.to_string().contains(&query)
+    }
+
+    /// Check if a grouped connection matches the search query
+    pub fn matches_search_grouped(&self, group: &GroupedConnection) -> bool {
+        if self.search_query.is_empty() {
+            return true;
+        }
+        let query = self.search_query.to_lowercase();
+        // Match against process name, destination, or ports
+        group.process_name.to_lowercase().contains(&query)
+            || group.destination.to_lowercase().contains(&query)
+            || group.ports.iter().any(|p| p.to_string().contains(&query))
+    }
+
+    /// Clear the search query
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.search_active = false;
+    }
+
+    /// Toggle help overlay
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
     }
 }
 

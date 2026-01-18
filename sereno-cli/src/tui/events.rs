@@ -76,10 +76,33 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> EventResult {
         return handle_duration_prompt(app, key);
     }
 
+    // Handle help overlay
+    if app.show_help {
+        // Any key dismisses help
+        app.show_help = false;
+        return EventResult::Continue;
+    }
+
+    // Handle search input mode
+    if app.search_active {
+        return handle_search_input(app, key);
+    }
+
     // Global keys
     match key.code {
         KeyCode::Char('q') | KeyCode::Char('Q') => {
             return EventResult::Quit;
+        }
+        KeyCode::Char('?') => {
+            // Toggle help overlay
+            app.toggle_help();
+        }
+        KeyCode::Char('/') => {
+            // Enter search mode (only in Connections tab)
+            if app.active_tab == Tab::Connections {
+                app.search_active = true;
+                app.log("Search: type to filter, Esc to cancel".to_string());
+            }
         }
         KeyCode::Char('1') => {
             app.switch_tab(Tab::Connections);
@@ -143,18 +166,47 @@ fn handle_connections_key(app: &mut App, key: KeyEvent) -> EventResult {
         return EventResult::Continue;
     }
 
+    // Handle filter controls (works in any view mode)
+    match key.code {
+        KeyCode::Char('f') => {
+            // Toggle current filter and cycle to next
+            let label = crate::tui::app::ConnectionFilters::LABELS[app.filter_index];
+            app.toggle_current_filter();
+            let state = if app.filters.get(app.filter_index) { "ON" } else { "OFF" };
+            app.log(format!("Filter {}: {}", label, state));
+            app.next_filter();
+            return EventResult::Continue;
+        }
+        KeyCode::Char('F') => {
+            // Toggle current filter without cycling (Shift+F)
+            let label = crate::tui::app::ConnectionFilters::LABELS[app.filter_index];
+            app.toggle_current_filter();
+            let state = if app.filters.get(app.filter_index) { "ON" } else { "OFF" };
+            app.log(format!("Filter {}: {}", label, state));
+            return EventResult::Continue;
+        }
+        _ => {}
+    }
+
     // Handle navigation differently based on view mode
     if app.view_mode == crate::tui::app::ViewMode::Grouped {
         return handle_grouped_key(app, key, VISIBLE_ROWS);
     }
 
+    // Get filtered count for navigation (filters may hide some connections)
+    let filtered_count = app.get_filtered_connections().len();
+
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            app.select_up();
+            if app.selected_unified > 0 {
+                app.selected_unified -= 1;
+            }
             app.adjust_unified_scroll(VISIBLE_ROWS);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            app.select_down();
+            if app.selected_unified < filtered_count.saturating_sub(1) {
+                app.selected_unified += 1;
+            }
             app.adjust_unified_scroll(VISIBLE_ROWS);
         }
         KeyCode::Home => {
@@ -162,7 +214,7 @@ fn handle_connections_key(app: &mut App, key: KeyEvent) -> EventResult {
             app.unified_scroll_offset = 0;
         }
         KeyCode::End => {
-            app.selected_unified = app.unified_connections.len().saturating_sub(1);
+            app.selected_unified = filtered_count.saturating_sub(1);
             app.adjust_unified_scroll(VISIBLE_ROWS);
         }
         KeyCode::PageUp => {
@@ -170,7 +222,7 @@ fn handle_connections_key(app: &mut App, key: KeyEvent) -> EventResult {
             app.adjust_unified_scroll(VISIBLE_ROWS);
         }
         KeyCode::PageDown => {
-            let max = app.unified_connections.len().saturating_sub(1);
+            let max = filtered_count.saturating_sub(1);
             app.selected_unified = (app.selected_unified + VISIBLE_ROWS).min(max);
             app.adjust_unified_scroll(VISIBLE_ROWS);
         }
@@ -234,6 +286,9 @@ fn handle_grouped_key(app: &mut App, key: KeyEvent, visible_rows: usize) -> Even
         return EventResult::Continue;
     }
 
+    // Get filtered count for navigation (filters may hide some groups)
+    let filtered_count = app.get_filtered_grouped().len();
+
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             if app.selected_grouped > 0 {
@@ -242,7 +297,7 @@ fn handle_grouped_key(app: &mut App, key: KeyEvent, visible_rows: usize) -> Even
             app.adjust_grouped_scroll(visible_rows);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if app.selected_grouped < app.grouped_connections.len().saturating_sub(1) {
+            if app.selected_grouped < filtered_count.saturating_sub(1) {
                 app.selected_grouped += 1;
             }
             app.adjust_grouped_scroll(visible_rows);
@@ -252,7 +307,7 @@ fn handle_grouped_key(app: &mut App, key: KeyEvent, visible_rows: usize) -> Even
             app.grouped_scroll_offset = 0;
         }
         KeyCode::End => {
-            app.selected_grouped = app.grouped_connections.len().saturating_sub(1);
+            app.selected_grouped = filtered_count.saturating_sub(1);
             app.adjust_grouped_scroll(visible_rows);
         }
         KeyCode::PageUp => {
@@ -260,13 +315,13 @@ fn handle_grouped_key(app: &mut App, key: KeyEvent, visible_rows: usize) -> Even
             app.adjust_grouped_scroll(visible_rows);
         }
         KeyCode::PageDown => {
-            let max = app.grouped_connections.len().saturating_sub(1);
+            let max = filtered_count.saturating_sub(1);
             app.selected_grouped = (app.selected_grouped + visible_rows).min(max);
             app.adjust_grouped_scroll(visible_rows);
         }
         KeyCode::Enter | KeyCode::Char('i') | KeyCode::Char('I') => {
             // Toggle info popup for selected group
-            if !app.grouped_connections.is_empty() {
+            if filtered_count > 0 {
                 app.toggle_info_popup();
             }
         }
@@ -698,6 +753,41 @@ fn handle_duration_prompt(app: &mut App, key: KeyEvent) -> EventResult {
                     port: prompt.port,
                     duration: RuleDuration::Permanent,
                 };
+            }
+        }
+        _ => {}
+    }
+    EventResult::Continue
+}
+
+/// Handle keys when search input mode is active
+fn handle_search_input(app: &mut App, key: KeyEvent) -> EventResult {
+    match key.code {
+        KeyCode::Esc => {
+            // Exit search mode but keep query (allows refining)
+            app.search_active = false;
+            if app.search_query.is_empty() {
+                app.log("Search cancelled".to_string());
+            }
+        }
+        KeyCode::Enter => {
+            // Confirm search and exit input mode
+            app.search_active = false;
+            if app.search_query.is_empty() {
+                app.log("Search cleared".to_string());
+            } else {
+                app.log(format!("Searching: {}", app.search_query));
+            }
+        }
+        KeyCode::Backspace => {
+            // Delete last character
+            app.search_query.pop();
+        }
+        KeyCode::Char(c) => {
+            // Add character to search query
+            // Limit query length to prevent issues
+            if app.search_query.len() < 50 {
+                app.search_query.push(c);
             }
         }
         _ => {}

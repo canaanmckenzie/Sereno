@@ -30,6 +30,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if app.show_info_popup {
         draw_info_popup(frame, app);
     }
+
+    // Draw help overlay if active (on top of everything)
+    if app.show_help {
+        draw_help_overlay(frame, app);
+    }
 }
 
 /// Format bytes into human-readable form (KB, MB, GB)
@@ -146,9 +151,52 @@ fn draw_content(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the unified Connections tab - merged ALE auth + TLM bandwidth
 fn draw_connections_tab(frame: &mut Frame, app: &App, area: Rect) {
-    match app.view_mode {
-        ViewMode::Detailed => draw_connections_detailed(frame, app, area),
-        ViewMode::Grouped => draw_connections_grouped(frame, app, area),
+    // Check if we need to show search bar
+    let show_search_bar = app.search_active || !app.search_query.is_empty();
+
+    if show_search_bar {
+        // Split area: search bar at top, content below
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Search bar
+                Constraint::Min(5),    // Content
+            ])
+            .split(area);
+
+        // Draw search bar
+        let search_style = if app.search_active {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let cursor = if app.search_active { "▌" } else { "" };
+        let search_text = format!(" / Search: {}{} ", app.search_query, cursor);
+        let hint = if app.search_active {
+            " [Enter=confirm, Esc=cancel] "
+        } else {
+            " [/=edit, Esc=clear] "
+        };
+
+        let search_line = Line::from(vec![
+            Span::styled(search_text, search_style),
+            Span::styled(hint, Style::default().fg(Color::DarkGray)),
+        ]);
+        let search_bar = Paragraph::new(search_line);
+        frame.render_widget(search_bar, chunks[0]);
+
+        // Draw content in remaining area
+        match app.view_mode {
+            ViewMode::Detailed => draw_connections_detailed(frame, app, chunks[1]),
+            ViewMode::Grouped => draw_connections_grouped(frame, app, chunks[1]),
+        }
+    } else {
+        // No search bar - use full area
+        match app.view_mode {
+            ViewMode::Detailed => draw_connections_detailed(frame, app, area),
+            ViewMode::Grouped => draw_connections_grouped(frame, app, area),
+        }
     }
 }
 
@@ -191,11 +239,12 @@ fn draw_connections_detailed(frame: &mut Frame, app: &App, area: Rect) {
 
     let header = Row::new(header_cells).height(1);
 
-    // Calculate visible rows
-    let visible_rows = area.height.saturating_sub(3) as usize;
+    // Calculate visible rows (subtract 1 more if filters are active for filter bar)
+    let filter_bar_height = if app.filters.any_active() { 1 } else { 0 };
+    let visible_rows = area.height.saturating_sub(3 + filter_bar_height as u16) as usize;
 
-    // Get sorted connections
-    let sorted_connections = app.get_unified_connections_sorted();
+    // Get filtered and sorted connections
+    let sorted_connections = app.get_filtered_connections();
 
     // Clamp scroll offset and selection
     let max_scroll = sorted_connections.len().saturating_sub(visible_rows.max(1));
@@ -246,12 +295,21 @@ fn draw_connections_detailed(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default()
             };
 
-            // Signature status
-            let (sig_label, sig_style) = match &conn.signature_status {
-                Some(SignatureStatus::Signed { .. }) => ("OK", Style::default().fg(Color::Green)),
-                Some(SignatureStatus::Unsigned) => ("!!", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                Some(SignatureStatus::Invalid) => ("XX", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                Some(SignatureStatus::Unknown) | None => ("?", Style::default().fg(Color::DarkGray)),
+            // Signature status - show "SYS" for system processes where signing doesn't apply
+            let is_system_process = conn.process_id == 0
+                || conn.process_id == 4
+                || conn.process_name.to_lowercase() == "system"
+                || conn.process_name.to_lowercase().starts_with("system ");
+
+            let (sig_label, sig_style) = if is_system_process {
+                ("SYS", Style::default().fg(Color::Cyan))
+            } else {
+                match &conn.signature_status {
+                    Some(SignatureStatus::Signed { .. }) => ("OK", Style::default().fg(Color::Green)),
+                    Some(SignatureStatus::Unsigned) => ("!!", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Some(SignatureStatus::Invalid) => ("XX", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Some(SignatureStatus::Unknown) | None => ("?", Style::default().fg(Color::DarkGray)),
+                }
             };
 
             // Process display
@@ -291,7 +349,7 @@ fn draw_connections_detailed(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             // Truncate long destinations (especially IPv6) for display
-            let dest_display = truncate_for_display(&conn.destination, 25);
+            let dest_display = truncate_for_display(&conn.destination, 50);
 
             Row::new(vec![
                 Cell::from(conn.first_seen.clone()),
@@ -316,24 +374,39 @@ fn draw_connections_detailed(frame: &mut Frame, app: &App, area: Rect) {
             Constraint::Length(5),  // Auth
             Constraint::Length(3),  // Dir
             Constraint::Length(3),  // Sig
-            Constraint::Length(18), // Process
-            Constraint::Min(18),    // Destination
+            Constraint::Length(28), // Process (wider for name + PID)
+            Constraint::Min(40),    // Destination (expanded)
             Constraint::Length(9),  // Port
             Constraint::Length(8),  // Sent
             Constraint::Length(8),  // Recv
         ],
-    )
-    .header(header)
+    );
+
+    // Build filter indicator for title
+    let filter_hint = if app.filters.any_active() {
+        let active: Vec<&str> = crate::tui::app::ConnectionFilters::LABELS
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| app.filters.get(*i))
+            .map(|(_, label)| *label)
+            .collect();
+        format!(" [hiding: {}]", active.join(","))
+    } else {
+        String::new()
+    };
+
+    let table = table.header(header)
     .block(
         Block::default()
             .title(format!(
-                " Connections ({}-{}/{}) [{}] ↑{} ↓{} ",
+                " Connections ({}-{}/{}) [{}] ↑{} ↓{}{} [f=filter] ",
                 if sorted_connections.is_empty() { 0 } else { start + 1 },
                 end,
                 sorted_connections.len(),
                 sort_indicator,
                 format_bytes(app.total_bytes_sent),
                 format_bytes(app.total_bytes_received),
+                filter_hint,
             ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Blue)),
@@ -350,12 +423,15 @@ fn draw_connections_grouped(frame: &mut Frame, app: &App, area: Rect) {
 
     let header = Row::new(header_cells).height(1);
 
+    // Get filtered grouped connections
+    let filtered_groups = app.get_filtered_grouped();
+
     // Calculate visible rows
     let visible_rows = (area.height.saturating_sub(3)) as usize; // -3 for borders and header
-    let start = app.grouped_scroll_offset;
-    let end = (start + visible_rows).min(app.grouped_connections.len());
+    let start = app.grouped_scroll_offset.min(filtered_groups.len().saturating_sub(1));
+    let end = (start + visible_rows).min(filtered_groups.len());
 
-    let rows: Vec<Row> = app.grouped_connections
+    let rows: Vec<Row> = filtered_groups
         .iter()
         .enumerate()
         .skip(start)
@@ -393,7 +469,7 @@ fn draw_connections_grouped(frame: &mut Frame, app: &App, area: Rect) {
             let proc_display = truncate_for_display(&proc_display, 18);
 
             // Truncate destination
-            let dest_display = truncate_for_display(&group.destination, 28);
+            let dest_display = truncate_for_display(&group.destination, 55);
 
             // Protocol display: show both if TCP+UDP, otherwise just one
             let proto_display = if group.protocols.len() > 1 {
@@ -429,24 +505,39 @@ fn draw_connections_grouped(frame: &mut Frame, app: &App, area: Rect) {
     let table = Table::new(
         rows,
         [
-            Constraint::Length(18), // Process
-            Constraint::Min(20),    // Destination
+            Constraint::Length(20), // Process (with PID count)
+            Constraint::Min(40),    // Destination (expanded)
             Constraint::Length(7),  // Proto
             Constraint::Length(3),  // # (count)
             Constraint::Length(8),  // Sent
             Constraint::Length(8),  // Recv
             Constraint::Length(6),  // Status
         ],
-    )
-    .header(header)
+    );
+
+    // Build filter indicator for title
+    let filter_hint = if app.filters.any_active() {
+        let active: Vec<&str> = crate::tui::app::ConnectionFilters::LABELS
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| app.filters.get(*i))
+            .map(|(_, label)| *label)
+            .collect();
+        format!(" [hiding: {}]", active.join(","))
+    } else {
+        String::new()
+    };
+
+    let table = table.header(header)
     .block(
         Block::default()
             .title(format!(
-                " {} ({} groups) ↑{} ↓{} ",
-                app.grouped_connections.get(app.selected_grouped)
+                " {} ({} groups){} ↑{} ↓{} [f=filter] ",
+                filtered_groups.get(app.selected_grouped)
                     .map(|g| g.process_name.as_str())
                     .unwrap_or("No selection"),
-                app.grouped_connections.len(),
+                filtered_groups.len(),
+                filter_hint,
                 format_bytes(app.total_bytes_sent),
                 format_bytes(app.total_bytes_received),
             ))
@@ -492,12 +583,21 @@ fn draw_monitor_tab(frame: &mut Frame, app: &App, area: Rect) {
             action_style
         };
 
-        // Format signature status
-        let (sig_label, sig_style) = match &conn.signature_status {
-            Some(SignatureStatus::Signed { .. }) => ("OK", Style::default().fg(Color::Green)),
-            Some(SignatureStatus::Unsigned) => ("!!", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Some(SignatureStatus::Invalid) => ("XX", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Some(SignatureStatus::Unknown) | None => ("?", Style::default().fg(Color::DarkGray)),
+        // Format signature status - show "SYS" for system processes
+        let is_system_process = conn.process_id == 0
+            || conn.process_id == 4
+            || conn.process_name.to_lowercase() == "system"
+            || conn.process_name.to_lowercase().starts_with("system ");
+
+        let (sig_label, sig_style) = if is_system_process {
+            ("SYS", Style::default().fg(Color::Cyan))
+        } else {
+            match &conn.signature_status {
+                Some(SignatureStatus::Signed { .. }) => ("OK", Style::default().fg(Color::Green)),
+                Some(SignatureStatus::Unsigned) => ("!!", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Some(SignatureStatus::Invalid) => ("XX", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Some(SignatureStatus::Unknown) | None => ("?", Style::default().fg(Color::DarkGray)),
+            }
         };
 
         // Format process name - handle System process (PID 4)
@@ -1217,8 +1317,9 @@ fn draw_info_popup(frame: &mut Frame, app: &App) {
 
     // Get selected connection based on view mode
     let conn_info = if app.view_mode == ViewMode::Grouped {
-        // For grouped view, show group info (process + destination aggregation)
-        app.grouped_connections.get(app.selected_grouped).map(|group| {
+        // For grouped view, show group info + individual connections
+        let filtered_groups = app.get_filtered_grouped();
+        filtered_groups.get(app.selected_grouped).map(|group| {
             // Format ports list
             let ports_str = if group.ports.len() > 5 {
                 let first_five: Vec<String> = group.ports.iter().take(5).map(|p| p.to_string()).collect();
@@ -1238,30 +1339,99 @@ fn draw_info_popup(frame: &mut Frame, app: &App) {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            vec![
-                ("Process", group.process_name.clone()),
-                ("PIDs", format!("{} unique", group.pid_count)),
-                ("", "".to_string()), // Separator
-                ("Destination", group.destination.clone()),
-                ("Ports", ports_str),
-                ("Protocols", protocols_str),
-                ("", "".to_string()), // Separator
-                ("Connections", format!("{}", group.connection_count)),
-                ("Total Sent", format_bytes(group.total_bytes_sent)),
-                ("Total Received", format_bytes(group.total_bytes_received)),
-                ("Status", group.auth_status.label().to_string()),
-                ("Active", if group.is_any_active { "Yes" } else { "No" }.to_string()),
-                ("First Seen", group.first_seen.clone()),
-            ]
+            // Find individual connections that belong to this group
+            // Also build a map of local_port -> PID for resolving TLM-only (PID 0) entries
+            let mut port_to_pid: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
+            for conn in app.unified_connections.values() {
+                if conn.process_id != 0 {
+                    port_to_pid.insert(conn.local_port, conn.process_id);
+                }
+            }
+
+            let mut individual_conns: Vec<String> = Vec::new();
+            for conn in app.unified_connections.values() {
+                if conn.process_name == group.process_name && conn.destination == group.destination {
+                    let proto = match conn.protocol {
+                        sereno_core::types::Protocol::Tcp => "TCP",
+                        sereno_core::types::Protocol::Udp => "UDP",
+                        _ => "?",
+                    };
+                    let active = if conn.is_active { "●" } else { "○" };
+
+                    // For PID 0 (TLM-only), try to resolve from port or show "TLM"
+                    let pid_display = if conn.process_id == 0 {
+                        // Try to find PID from a related connection with same local port
+                        if let Some(&resolved_pid) = port_to_pid.get(&conn.local_port) {
+                            format!("~{}", resolved_pid) // ~ indicates inferred PID
+                        } else {
+                            "TLM".to_string() // TLM-only, no process info
+                        }
+                    } else {
+                        conn.process_id.to_string()
+                    };
+
+                    individual_conns.push(format!(
+                        "{} PID:{} :{}→:{} {} ↑{} ↓{}",
+                        active,
+                        pid_display,
+                        conn.local_port,
+                        conn.remote_port,
+                        proto,
+                        format_bytes(conn.bytes_sent),
+                        format_bytes(conn.bytes_received),
+                    ));
+                }
+            }
+
+            let mut info: Vec<(String, String)> = vec![
+                ("Process".to_string(), group.process_name.clone()),
+                ("PIDs".to_string(), format!("{} unique", group.pid_count)),
+                ("".to_string(), "".to_string()), // Separator
+                ("Destination".to_string(), group.destination.clone()),
+                ("Ports".to_string(), ports_str),
+                ("Protocols".to_string(), protocols_str),
+                ("".to_string(), "".to_string()), // Separator
+                ("Connections".to_string(), format!("{}", group.connection_count)),
+                ("Total Sent".to_string(), format_bytes(group.total_bytes_sent)),
+                ("Total Received".to_string(), format_bytes(group.total_bytes_received)),
+                ("Status".to_string(), group.auth_status.label().to_string()),
+                ("Active".to_string(), if group.is_any_active { "Yes" } else { "No" }.to_string()),
+                ("First Seen".to_string(), group.first_seen.clone()),
+            ];
+
+            // Add individual connections section if there are multiple
+            if !individual_conns.is_empty() {
+                info.push(("".to_string(), "".to_string())); // Separator
+                info.push(("─ Individual".to_string(), "Connections ─".to_string()));
+                // Show up to 8 individual connections
+                for (i, conn_str) in individual_conns.iter().take(8).enumerate() {
+                    info.push((format!("  #{}", i + 1), conn_str.clone()));
+                }
+                if individual_conns.len() > 8 {
+                    info.push(("  ...".to_string(), format!("(+{} more)", individual_conns.len() - 8)));
+                }
+            }
+
+            info
         })
     } else {
         // For detailed view, show connection info
         app.selected_unified_connection().map(|conn| {
-            let sig_info = match &conn.signature_status {
-                Some(SignatureStatus::Signed { signer }) => format!("✓ Signed: {}", signer),
-                Some(SignatureStatus::Unsigned) => "⚠ UNSIGNED".to_string(),
-                Some(SignatureStatus::Invalid) => "✗ INVALID".to_string(),
-                Some(SignatureStatus::Unknown) | None => "? Unknown".to_string(),
+            // Check if system process where signing doesn't apply
+            let is_system_process = conn.process_id == 0
+                || conn.process_id == 4
+                || conn.process_name.to_lowercase() == "system"
+                || conn.process_name.to_lowercase().starts_with("system ");
+
+            let sig_info = if is_system_process {
+                "○ System Process (N/A)".to_string()
+            } else {
+                match &conn.signature_status {
+                    Some(SignatureStatus::Signed { signer }) => format!("✓ Signed: {}", signer),
+                    Some(SignatureStatus::Unsigned) => "⚠ UNSIGNED".to_string(),
+                    Some(SignatureStatus::Invalid) => "✗ INVALID".to_string(),
+                    Some(SignatureStatus::Unknown) | None => "? Unknown".to_string(),
+                }
             };
 
             let direction = match conn.direction {
@@ -1278,21 +1448,21 @@ fn draw_info_popup(frame: &mut Frame, app: &App) {
             };
 
             vec![
-                ("Process", format!("{} [PID: {}]", conn.process_name, conn.process_id)),
-                ("Path", if conn.process_path.is_empty() { "(unknown)".to_string() } else { conn.process_path.clone() }),
-                ("Signature", sig_info),
-                ("", "".to_string()), // Separator
-                ("Destination", conn.destination.clone()),
-                ("Remote IP", conn.remote_address.to_string()),
-                ("Port", format!("{} ({})", conn.remote_port, protocol)),
-                ("Local Port", format!("{}", conn.local_port)),
-                ("Direction", direction.to_string()),
-                ("", "".to_string()), // Separator
-                ("Status", conn.auth_status.label().to_string()),
-                ("Sent", format_bytes(conn.bytes_sent)),
-                ("Received", format_bytes(conn.bytes_received)),
-                ("First Seen", conn.first_seen.clone()),
-                ("Active", if conn.is_active { "Yes" } else { "No" }.to_string()),
+                ("Process".to_string(), format!("{} [PID: {}]", conn.process_name, conn.process_id)),
+                ("Path".to_string(), if conn.process_path.is_empty() { "(unknown)".to_string() } else { conn.process_path.clone() }),
+                ("Signature".to_string(), sig_info),
+                ("".to_string(), "".to_string()), // Separator
+                ("Destination".to_string(), conn.destination.clone()),
+                ("Remote IP".to_string(), conn.remote_address.to_string()),
+                ("Port".to_string(), format!("{} ({})", conn.remote_port, protocol)),
+                ("Local Port".to_string(), format!("{}", conn.local_port)),
+                ("Direction".to_string(), direction.to_string()),
+                ("".to_string(), "".to_string()), // Separator
+                ("Status".to_string(), conn.auth_status.label().to_string()),
+                ("Sent".to_string(), format_bytes(conn.bytes_sent)),
+                ("Received".to_string(), format_bytes(conn.bytes_received)),
+                ("First Seen".to_string(), conn.first_seen.clone()),
+                ("Active".to_string(), if conn.is_active { "Yes" } else { "No" }.to_string()),
             ]
         })
     };
@@ -1302,8 +1472,9 @@ fn draw_info_popup(frame: &mut Frame, app: &App) {
     };
 
     // Calculate popup size and position (centered)
+    // Wider popup for grouped view with individual connections
     let area = frame.area();
-    let popup_width = 60.min(area.width.saturating_sub(4));
+    let popup_width = 75.min(area.width.saturating_sub(4));
     let popup_height = (info.len() as u16 + 4).min(area.height.saturating_sub(4));
 
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
@@ -1325,12 +1496,25 @@ fn draw_info_popup(frame: &mut Frame, app: &App) {
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
-            let label_style = Style::default().fg(Color::Yellow);
-            let value_style = if label == "Signature" {
+            let label_style = if label.starts_with("  #") || label.starts_with("  ...") {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            let value_style = if label.starts_with("  #") || label.starts_with("  ...") {
+                // Individual connection rows: color by active status (● green, ○ gray)
+                if value.starts_with('●') {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }
+            } else if label == "Signature" {
                 if value.starts_with('✓') {
                     Style::default().fg(Color::Green)
                 } else if value.starts_with('⚠') || value.starts_with('✗') {
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                } else if value.starts_with('○') {
+                    Style::default().fg(Color::Cyan) // System process
                 } else {
                     Style::default().fg(Color::DarkGray)
                 }
@@ -1373,6 +1557,102 @@ fn draw_info_popup(frame: &mut Frame, app: &App) {
                 .title(" Connection Info ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan))
+                .style(Style::default().bg(Color::Black)),
+        );
+
+    frame.render_widget(popup, popup_area);
+}
+
+/// Draw the help overlay showing all keyboard shortcuts
+fn draw_help_overlay(frame: &mut Frame, _app: &App) {
+    let area = frame.area();
+
+    // Help content organized by category
+    let help_sections = vec![
+        ("Global Keys", vec![
+            ("?", "Toggle this help"),
+            ("q", "Quit"),
+            ("1-4", "Switch tabs"),
+            ("Tab", "Next tab"),
+        ]),
+        ("Connections Tab", vec![
+            ("/", "Search/filter connections"),
+            ("f", "Cycle through filters"),
+            ("F", "Toggle current filter only"),
+            ("g", "Toggle grouped view"),
+            ("s", "Cycle sort mode"),
+            ("i", "Show connection info"),
+            ("t", "Toggle allow/deny rule"),
+            ("c", "Clear connection list"),
+        ]),
+        ("Navigation", vec![
+            ("j/↓", "Move down"),
+            ("k/↑", "Move up"),
+            ("Home", "Go to first item"),
+            ("End", "Go to last item"),
+            ("PgUp/Dn", "Page up/down"),
+        ]),
+        ("Rules Tab", vec![
+            ("Space", "Select rule"),
+            ("d", "Delete rule"),
+            ("D", "Delete selected rules"),
+            ("t", "Toggle enabled"),
+            ("Ctrl+A", "Select all"),
+            ("Esc", "Clear selection"),
+        ]),
+        ("Search Mode", vec![
+            ("Esc", "Cancel/clear search"),
+            ("Enter", "Confirm search"),
+            ("Backspace", "Delete character"),
+        ]),
+    ];
+
+    // Calculate popup dimensions
+    let popup_width = 60.min(area.width.saturating_sub(4));
+    let popup_height = 30.min(area.height.saturating_sub(4));
+
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Build content
+    let mut lines: Vec<Line> = Vec::new();
+
+    for (section_title, keys) in help_sections {
+        // Section header
+        lines.push(Line::from(Span::styled(
+            format!("  {} ", section_title),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )));
+
+        // Key-value pairs
+        for (key, desc) in keys {
+            lines.push(Line::from(vec![
+                Span::styled(format!("    {:12} ", key), Style::default().fg(Color::Yellow)),
+                Span::styled(desc, Style::default().fg(Color::White)),
+            ]));
+        }
+
+        // Add spacing between sections
+        lines.push(Line::from(""));
+    }
+
+    // Footer
+    lines.push(Line::from(Span::styled(
+        "  Press any key to close",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+    )));
+
+    let popup = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(" Keyboard Shortcuts ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green))
                 .style(Style::default().bg(Color::Black)),
         );
 

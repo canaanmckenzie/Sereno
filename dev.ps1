@@ -6,26 +6,35 @@
 # - Driver completes the pended operation with ALLOW or BLOCK
 # - This allows unlimited concurrent connections with zero kernel thread blocking
 #
-# Usage: .\dev.ps1              # Build CLI and Run TUI
-#        .\dev.ps1 -Build       # Rebuild CLI only
-#        .\dev.ps1 -Run         # Run TUI only (assumes already built)
-#        .\dev.ps1 -BuildDriver # Build, sign, and install driver (requires admin)
-#        .\dev.ps1 -Reload      # Stop, copy pre-built driver, restart (fast reload)
-#        .\dev.ps1 -Driver      # Start driver only
-#        .\dev.ps1 -Stop        # Stop driver
-#        .\dev.ps1 -All         # Full rebuild: driver + CLI, install, and start TUI
-#        .\dev.ps1 -Recovery    # Post-reboot: rebuild CLI, recreate service, start TUI
+# ========== QUICK START ==========
+#   .\dev.ps1                   # Build release + run TUI (most common)
+#   .\dev.ps1 -Run              # Just run (skip build if no changes)
 #
-# Typical development workflow:
-#   1. .\dev.ps1 -BuildDriver   # First time: build and install driver (admin required)
-#   2. .\dev.ps1               # Edit code, rebuild CLI, test in TUI
-#   3. .\dev.ps1 -Run          # Just run TUI (no rebuild)
+# ========== ALL COMMANDS ==========
+#   .\dev.ps1              # Build CLI (release) and Run TUI
+#   .\dev.ps1 -Build       # Rebuild CLI only (no run)
+#   .\dev.ps1 -Run         # Run TUI only (skip build)
+#   .\dev.ps1 -BuildDriver # Build, sign, and install driver (requires admin)
+#   .\dev.ps1 -Reload      # Stop, copy pre-built driver, restart (fast reload)
+#   .\dev.ps1 -Driver      # Start driver only
+#   .\dev.ps1 -Stop        # Stop driver
+#   .\dev.ps1 -All         # Full rebuild: driver + CLI, install, and start TUI
+#   .\dev.ps1 -Recovery    # Post-reboot: rebuild CLI, recreate service, start TUI
 #
-# If driver crashes VM (shouldn't with async model):
-#   1. Restart VM
-#   2. .\dev.ps1 -Stop         # Stop driver
-#   3. Fix code
-#   4. .\dev.ps1 -BuildDriver  # Rebuild and reinstall
+# ========== WORKFLOW ==========
+#   First time setup:
+#     1. .\dev.ps1 -BuildDriver   # Build and install driver (admin required)
+#     2. .\dev.ps1                # Build CLI and run
+#
+#   Daily development:
+#     1. Edit code
+#     2. .\dev.ps1                # Rebuilds and runs automatically
+#
+#   Quick restart (no code changes):
+#     .\dev.ps1 -Run              # Skips build, just runs
+#
+# NOTE: Always use this script, NOT `cargo build` directly.
+#       This ensures the correct target and release mode.
 
 param(
     [switch]$Build,
@@ -310,19 +319,23 @@ if ($BuildDriver -or $All) {
 }
 
 if ($Build -or $All -or (-not $Run)) {
-    Write-Host "Building CLI (Release)..." -ForegroundColor Cyan
+    Write-Host "=== Building CLI (Release) ===" -ForegroundColor Cyan
+    Write-Host "  Target: x86_64-pc-windows-msvc" -ForegroundColor Gray
+    Write-Host "  Output: $exe" -ForegroundColor Gray
     cargo build --release -p sereno-cli --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Build failed!" -ForegroundColor Red
         exit 1
     }
-    Write-Host "Build complete." -ForegroundColor Green
+    # Show binary info
+    $binary = Get-Item $exe
+    Write-Host "Build complete: $($binary.Name) ($([math]::Round($binary.Length / 1MB, 2)) MB)" -ForegroundColor Green
 }
 
 if ($Run -or $All -or (-not $Build -and -not $BuildDriver)) {
     if (-not (Test-Path $exe)) {
         Write-Host "Binary not found at $exe" -ForegroundColor Red
-        Write-Host "Run with -Build first." -ForegroundColor Yellow
+        Write-Host "Run .\dev.ps1 (without -Run) to build first." -ForegroundColor Yellow
         exit 1
     }
 
@@ -334,6 +347,12 @@ if ($Run -or $All -or (-not $Build -and -not $BuildDriver)) {
         Write-Host "Driver: Not running (TUI will work in monitor-only mode)" -ForegroundColor Yellow
     }
 
-    Write-Host "Starting TUI..." -ForegroundColor Cyan
+    # Show which binary we're running
+    $binary = Get-Item $exe
+    $modified = $binary.LastWriteTime.ToString("HH:mm:ss")
+    Write-Host "=== Starting TUI ===" -ForegroundColor Cyan
+    Write-Host "  Binary: $exe" -ForegroundColor Gray
+    Write-Host "  Modified: $modified" -ForegroundColor Gray
+    Write-Host ""
     & $exe
 }
